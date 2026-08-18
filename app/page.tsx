@@ -58,7 +58,11 @@ export default function Home() {
                 </p>
                 <button className="mt-4 w-full bg-blue-50 text-blue-700 py-2 rounded font-medium hover:bg-blue-100 transition-colors">
                   Configurar Precios
-                </button>
+               <Link href={`/proyecto/${proyecto.id}`}>
+  <button className="mt-4 w-full bg-blue-50 text-blue-700 py-2 rounded font-medium hover:bg-blue-100 transition-colors">
+    Configurar Precios
+  </button>
+</Link>
               </div>
             ))}
           </div>

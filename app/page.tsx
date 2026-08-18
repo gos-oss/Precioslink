@@ -48,21 +48,23 @@ export default function Home() {
             {proyectos.map((proyecto) => (
               <div 
                 key={proyecto.id} 
-                className="bg-white p-6 rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow cursor-pointer"
+                className="bg-white p-6 rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow cursor-pointer flex flex-col justify-between"
               >
-                <h2 className="text-xl font-semibold text-blue-600 mb-2">
-                  {proyecto.nombre}
-                </h2>
-                <p className="text-sm text-gray-600">
-                  {proyecto.descripcion}
-                </p>
-                <button className="mt-4 w-full bg-blue-50 text-blue-700 py-2 rounded font-medium hover:bg-blue-100 transition-colors">
-                  Configurar Precios
-               <Link href={`/proyecto/${proyecto.id}`}>
-  <button className="mt-4 w-full bg-blue-50 text-blue-700 py-2 rounded font-medium hover:bg-blue-100 transition-colors">
-    Configurar Precios
-  </button>
-</Link>
+                <div>
+                  <h2 className="text-xl font-semibold text-blue-600 mb-2">
+                    {proyecto.nombre}
+                  </h2>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {proyecto.descripcion}
+                  </p>
+                </div>
+                
+                {/* Botón corregido con Link */}
+                <Link href={`/proyecto/${proyecto.id}`}>
+                  <button className="w-full bg-blue-50 text-blue-700 py-2 rounded font-medium hover:bg-blue-100 transition-colors">
+                    Configurar Precios
+                  </button>
+                </Link>
               </div>
             ))}
           </div>

@@ -4,16 +4,14 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity } from 'lucide-react'
 
 export default function ProyectoCalculadora({ params }: { params: { id: string } }) {
   const [proyecto, setProyecto] = useState<any>(null)
-  const [configGlobal, setConfigGlobal] = useState<any>(null) // NUEVO: Estado para la config
-  
+  const [configGlobal, setConfigGlobal] = useState<any>(null)
   const [editandoNombre, setEditandoNombre] = useState(false)
   const [nuevoNombre, setNuevoNombre] = useState('')
   
-  // Variables que el usuario SÍ puede modificar por proyecto
   const [superficieVendible, setSuperficieVendible] = useState(5000)
   const [costoDuroM2, setCostoDuroM2] = useState(1200)
   const [margenObjetivo, setMargenObjetivo] = useState(0.20)
@@ -23,249 +21,188 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [resultados, setResultados] = useState<any>(null)
   const [guardando, setGuardando] = useState(false)
 
-  // Cargar Proyecto y Configuración Global al mismo tiempo
   useEffect(() => {
     async function fetchData() {
       const [resProyecto, resConfig] = await Promise.all([
         supabase.from('proyectos').select('*').eq('id', params.id).single(),
         supabase.from('configuracion_global').select('*').eq('id', 1).single()
       ])
-      
       if (resProyecto.data) {
         setProyecto(resProyecto.data)
-        if (resProyecto.data.superficie_vendible_m2) {
-          setSuperficieVendible(resProyecto.data.superficie_vendible_m2)
-        }
+        if (resProyecto.data.superficie_vendible_m2) setSuperficieVendible(resProyecto.data.superficie_vendible_m2)
       }
-      if (resConfig.data) {
-        setConfigGlobal(resConfig.data)
-      }
+      if (resConfig.data) setConfigGlobal(resConfig.data)
     }
     fetchData()
   }, [params.id])
 
-  // Recalcular siempre que cambien los inputs o se cargue la config
   useEffect(() => {
     if (proyecto && configGlobal) {
       try {
         const res = calcularPrecioSugerido({
-          superficieVendible,
-          costoDuroM2,
-          canjeTierraPct: canjeTierra,
-          canjeHonorariosPct: canjeHonorarios,
-          margenObjetivo,
-          // Estos vienen del cerebro central:
-          tasaIIBB: configGlobal.tasa_iibb,
-          tasaTEM: configGlobal.tasa_tem,
-          comisionVenta: configGlobal.comision_venta,
-          tipoCambio: configGlobal.tipo_cambio,
-          pctImprevistos: configGlobal.imprevistos,
-          pctIVA: configGlobal.tasa_iva,
-          pctAdmin: configGlobal.gastos_admin
+          superficieVendible, costoDuroM2, canjeTierraPct: canjeTierra, canjeHonorariosPct: canjeHonorarios,
+          margenObjetivo, tasaIIBB: configGlobal.tasa_iibb, tasaTEM: configGlobal.tasa_tem,
+          comisionVenta: configGlobal.comision_venta, tipoCambio: configGlobal.tipo_cambio,
+          pctImprevistos: configGlobal.imprevistos, pctIVA: configGlobal.tasa_iva, pctAdmin: configGlobal.gastos_admin
         })
         setResultados(res)
-      } catch (error) {
-        console.error("Error matemático:", error)
-      }
+      } catch (error) { console.error(error) }
     }
   }, [proyecto, configGlobal, superficieVendible, costoDuroM2, margenObjetivo, canjeTierra, canjeHonorarios])
 
   async function guardarHistorial() {
     if (!resultados || !proyecto || !configGlobal) return
     setGuardando(true)
-
-    const { error } = await supabase
-      .from('historial_versiones_proyecto')
-      .insert({
-        id_proyecto: proyecto.id,
-        tipo_cambio: configGlobal.tipo_cambio, // Guardamos el tipo de cambio de ese momento
-        costo_duro_m2: costoDuroM2,
-        canje_tierra_porcentaje: canjeTierra,
-        margen_objetivo: margenObjetivo,
-        resultado_metros_libres: resultados.metrosLibres,
-        resultado_costo_integral_total_usd: resultados.ticket.totalCostoVivienda,
-        resultado_precio_promedio_usd: resultados.precioSugeridoUSD
-      })
-
+    const { error } = await supabase.from('historial_versiones_proyecto').insert({
+      id_proyecto: proyecto.id, tipo_cambio: configGlobal.tipo_cambio, costo_duro_m2: costoDuroM2,
+      canje_tierra_porcentaje: canjeTierra, margen_objetivo: margenObjetivo, resultado_metros_libres: resultados.metrosLibres,
+      resultado_costo_integral_total_usd: resultados.ticket.totalCostoVivienda, resultado_precio_promedio_usd: resultados.precioSugeridoUSD
+    })
     setGuardando(false)
-    if (error) alert('Hubo un error al guardar: ' + error.message)
-    else alert('¡Escenario guardado exitosamente en el historial!')
+    if (error) alert('Error: ' + error.message)
+    else alert('¡Escenario guardado exitosamente!')
   }
 
   async function guardarNombre() {
     if (!nuevoNombre.trim()) return
     const { error } = await supabase.from('proyectos').update({ nombre: nuevoNombre }).eq('id', proyecto.id)
-    if (!error) {
-      setProyecto({ ...proyecto, nombre: nuevoNombre })
-      setEditandoNombre(false)
-    }
+    if (!error) { setProyecto({ ...proyecto, nombre: nuevoNombre }); setEditandoNombre(false); }
   }
 
   if (!proyecto || !configGlobal) return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-      <div className="animate-pulse flex flex-col items-center">
-        <div className="h-12 w-12 bg-blue-200 rounded-full mb-4"></div>
-        <p className="text-slate-500 font-medium">Sincronizando con base de datos central...</p>
+    <div className="min-h-screen bg-[#F4F4F5] flex items-center justify-center">
+      <div className="flex flex-col items-center space-y-4">
+        <Activity className="w-8 h-8 text-zinc-400 animate-pulse" />
+        <p className="text-zinc-500 font-medium tracking-wide uppercase text-sm">Sincronizando modelos...</p>
       </div>
     </div>
   )
 
   return (
-    <main className="min-h-screen bg-slate-50 p-6 md:p-12 font-sans text-slate-900">
-      <div className="max-w-6xl mx-auto">
+    <main className="min-h-screen bg-[#F4F4F5] p-6 md:p-10 font-sans text-zinc-900 selection:bg-indigo-100">
+      <div className="max-w-6xl mx-auto space-y-8">
         
-        {/* Navegación y Título */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-4">
+        {/* ENCABEZADO */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <Link href="/" className="inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors mb-3">
-              <ArrowLeft className="w-4 h-4 mr-1" /> Volver al dashboard
+            <Link href="/" className="inline-flex items-center text-sm font-semibold text-indigo-600 hover:text-indigo-800 transition-colors mb-4">
+              <ArrowLeft className="w-4 h-4 mr-1" /> Volver al Dashboard
             </Link>
             
             {editandoNombre ? (
-              <div className="flex items-center mt-2">
-                <Building2 className="w-8 h-8 mr-3 text-blue-500" />
-                <input 
-                  value={nuevoNombre} 
-                  onChange={(e) => setNuevoNombre(e.target.value)}
-                  className="text-3xl font-extrabold text-slate-900 border-b-2 border-blue-500 focus:outline-none bg-transparent"
-                  autoFocus
-                />
-                <button onClick={guardarNombre} className="ml-3 text-green-600 hover:bg-green-50 p-2 rounded"><Check className="w-5 h-5"/></button>
-                <button onClick={() => setEditandoNombre(false)} className="ml-1 text-red-500 hover:bg-red-50 p-2 rounded"><X className="w-5 h-5"/></button>
+              <div className="flex items-center">
+                <input value={nuevoNombre} onChange={(e) => setNuevoNombre(e.target.value)} className="text-3xl font-black text-zinc-900 border-b-2 border-indigo-500 focus:outline-none bg-transparent" autoFocus />
+                <button onClick={guardarNombre} className="ml-3 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 p-2 rounded-lg transition-colors"><Check className="w-5 h-5"/></button>
+                <button onClick={() => setEditandoNombre(false)} className="ml-2 text-rose-500 bg-rose-50 hover:bg-rose-100 p-2 rounded-lg transition-colors"><X className="w-5 h-5"/></button>
               </div>
             ) : (
-              <h1 className="text-4xl font-extrabold text-slate-900 flex items-center mt-2 group">
-                <Building2 className="w-8 h-8 mr-3 text-blue-500" />
+              <h1 className="text-3xl md:text-4xl font-black text-zinc-900 flex items-center group tracking-tight">
                 {proyecto.nombre}
-                <button onClick={() => { setNuevoNombre(proyecto.nombre); setEditandoNombre(true); }} className="ml-4 text-slate-300 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => { setNuevoNombre(proyecto.nombre); setEditandoNombre(true); }} className="ml-4 text-zinc-300 hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity">
                   <Edit2 className="w-5 h-5" />
                 </button>
               </h1>
             )}
-            
-            <p className="text-slate-500 mt-2 text-lg">{proyecto.descripcion}</p>
+            <p className="text-zinc-500 mt-2 font-medium">{proyecto.descripcion}</p>
           </div>
           
-          <div className="bg-white px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 shadow-sm">
-            Tipo de Cambio Activo: <span className="text-blue-600 font-bold">${configGlobal.tipo_cambio}</span>
+          <div className="bg-white px-5 py-3 rounded-xl border border-zinc-200/60 shadow-sm flex items-center">
+            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider mr-3">T.C. Activo</span>
+            <span className="text-indigo-600 font-black text-lg">${configGlobal.tipo_cambio}</span>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
-          {/* PANEL DE INPUTS */}
-          <div className="lg:col-span-8 bg-white p-8 rounded-2xl shadow-sm border border-slate-200/60">
-            <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100">
-              <h2 className="text-xl font-bold text-slate-800 flex items-center">
-                <Calculator className="w-5 h-5 mr-2 text-slate-400" />
-                Variables del Proyecto
+          {/* PANEL DE INPUTS (Fondo Blanco) */}
+          <div className="lg:col-span-8 bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
+            <div className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-100">
+              <h2 className="text-lg font-bold text-zinc-800 flex items-center uppercase tracking-wide">
+                <Calculator className="w-5 h-5 mr-3 text-indigo-500" />
+                Configuración del Escenario
               </h2>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-              
-              <div className="col-span-1 md:col-span-2 bg-blue-50/50 p-5 rounded-xl border border-blue-100">
-                <label className="block text-sm font-semibold text-blue-900 mb-2 flex items-center">
-                  <Building2 className="w-4 h-4 mr-2 text-blue-500" /> Superficie Vendible (m²)
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8">
+              <div className="col-span-1 md:col-span-2 bg-[#F4F4F5] p-6 rounded-2xl border border-zinc-200">
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center">
+                  <Building2 className="w-4 h-4 mr-2 text-indigo-500" /> Superficie Vendible (m²)
                 </label>
-                <input 
-                  type="number" 
-                  value={superficieVendible} 
-                  onChange={(e) => setSuperficieVendible(Number(e.target.value))} 
-                  className="w-full rounded-lg border-0 bg-white px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-blue-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all font-medium text-lg" 
-                />
+                <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-black text-xl" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
-                  <DollarSign className="w-4 h-4 mr-1 text-slate-400" /> Costo Duro Obra (USD/m²)
-                </label>
-                <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> Costo Duro Obra (USD/m²)</label>
+                <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
-                  <Percent className="w-4 h-4 mr-1 text-slate-400" /> Margen Objetivo
-                </label>
-                <input type="number" step="0.01" value={margenObjetivo} onChange={(e) => setMargenObjetivo(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Margen Objetivo</label>
+                <input type="number" step="0.01" value={margenObjetivo} onChange={(e) => setMargenObjetivo(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
-                  <Percent className="w-4 h-4 mr-1 text-slate-400" /> Canje Tierra
-                </label>
-                <input type="number" step="0.01" value={canjeTierra} onChange={(e) => setCanjeTierra(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Tierra</label>
+                <input type="number" step="0.01" value={canjeTierra} onChange={(e) => setCanjeTierra(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
-                  <Percent className="w-4 h-4 mr-1 text-slate-400" /> Canje Honorarios
-                </label>
-                <input type="number" step="0.01" value={canjeHonorarios} onChange={(e) => setCanjeHonorarios(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Honorarios</label>
+                <input type="number" step="0.01" value={canjeHonorarios} onChange={(e) => setCanjeHonorarios(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
             </div>
           </div>
 
-          {/* PANEL DE RESULTADOS */}
-          <div className="lg:col-span-4 bg-gradient-to-br from-slate-900 to-slate-800 p-8 rounded-2xl shadow-xl text-white flex flex-col justify-between relative overflow-hidden">
-            <div className="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-white opacity-5 rounded-full blur-2xl"></div>
+          {/* PANEL DE RESULTADOS (Terminal Financiera) */}
+          <div className="lg:col-span-4 bg-zinc-950 p-8 rounded-3xl shadow-2xl text-white flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
             <div className="relative z-10">
-              <h2 className="text-lg font-medium text-slate-300 mb-8 tracking-wide uppercase text-sm">Proyección Financiera</h2>
+              <h2 className="text-xs font-bold text-zinc-400 mb-8 tracking-widest uppercase">Proyección Financiera</h2>
               
               {resultados && (
-                <div className="space-y-4 text-sm">
+                <div className="space-y-6">
                   {/* Resumen de Precio */}
-                  <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 mb-6">
-                    <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Precio Sugerido Promedio</p>
+                  <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800 backdrop-blur-sm">
+                    <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2 font-bold">Precio Promedio</p>
                     <div className="flex items-baseline">
-                      <span className="text-xl font-semibold text-slate-400 mr-1">USD</span>
-                      <p className="text-4xl font-extrabold text-white">
-                        {Math.round(resultados.precioSugeridoUSD).toLocaleString()}
-                      </p>
+                      <span className="text-xl font-bold text-zinc-400 mr-2">USD</span>
+                      <p className="text-4xl font-black text-white tracking-tight">{Math.round(resultados.precioSugeridoUSD).toLocaleString()}</p>
                     </div>
                   </div>
 
                   {/* Ticket Detallado */}
-                  <div className="bg-slate-950/50 p-4 rounded-lg font-mono text-slate-300">
-                    <div className="flex justify-between text-white font-semibold mb-1">
-                      <span>CONSTRUCCION</span><span>USD {Math.round(resultados.ticket.construccion).toLocaleString()}</span>
+                  <div className="bg-zinc-900 p-5 rounded-2xl font-mono text-sm text-zinc-400 border border-zinc-800">
+                    <div className="flex justify-between text-white font-bold mb-2">
+                      <span>CONSTRUCCION</span><span>${Math.round(resultados.ticket.construccion).toLocaleString()}</span>
                     </div>
-                    <div className="flex justify-between pl-4 text-slate-400"><span>Imprevistos</span><span>{Math.round(resultados.ticket.imprevistos).toLocaleString()}</span></div>
-                    <div className="flex justify-between pl-4 text-slate-400"><span>IVA</span><span>{Math.round(resultados.ticket.iva).toLocaleString()}</span></div>
-                    <div className="flex justify-between pl-4 text-slate-400"><span>Administración</span><span>{Math.round(resultados.ticket.administracion).toLocaleString()}</span></div>
+                    <div className="flex justify-between pl-3"><span>Imprevistos</span><span>{Math.round(resultados.ticket.imprevistos).toLocaleString()}</span></div>
+                    <div className="flex justify-between pl-3"><span>IVA</span><span>{Math.round(resultados.ticket.iva).toLocaleString()}</span></div>
+                    <div className="flex justify-between pl-3"><span>Administración</span><span>{Math.round(resultados.ticket.administracion).toLocaleString()}</span></div>
                     
-                    <div className="flex justify-between text-white font-bold border-y border-slate-700 py-2 my-2">
-                      <span>Subtotal</span><span>USD {Math.round(resultados.ticket.subtotal1).toLocaleString()}</span>
+                    <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2">
+                      <span>Subtotal</span><span>${Math.round(resultados.ticket.subtotal1).toLocaleString()}</span>
                     </div>
                     
-                    <div className="flex justify-between pl-4 text-slate-400"><span>IIBB y TEM</span><span>{Math.round(resultados.ticket.iibbYTem).toLocaleString()}</span></div>
-                    <div className="flex justify-between pl-4 text-slate-400"><span>Comercialización</span><span>{Math.round(resultados.ticket.comercializacion).toLocaleString()}</span></div>
+                    <div className="flex justify-between pl-3"><span>IIBB y TEM</span><span>{Math.round(resultados.ticket.iibbYTem).toLocaleString()}</span></div>
+                    <div className="flex justify-between pl-3"><span>Comercializ.</span><span>{Math.round(resultados.ticket.comercializacion).toLocaleString()}</span></div>
                     
-                    <div className="flex justify-between text-white font-bold border-y border-slate-700 py-2 my-2">
-                      <span>Subtotal</span><span>USD {Math.round(resultados.ticket.subtotal2).toLocaleString()}</span>
+                    <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2">
+                      <span>Subtotal</span><span>${Math.round(resultados.ticket.subtotal2).toLocaleString()}</span>
                     </div>
 
-                    <div className="flex justify-between pl-4 text-slate-400"><span>Terreno Canje</span><span>{Math.round(resultados.ticket.terrenoCanje).toLocaleString()}</span></div>
-                    <div className="flex justify-between pl-4 text-slate-400"><span>Honorarios Canje</span><span>{Math.round(resultados.ticket.honorariosCanje).toLocaleString()}</span></div>
+                    <div className="flex justify-between pl-3"><span>Terreno Canje</span><span>{Math.round(resultados.ticket.terrenoCanje).toLocaleString()}</span></div>
+                    <div className="flex justify-between pl-3"><span>Honorarios Canje</span><span>{Math.round(resultados.ticket.honorariosCanje).toLocaleString()}</span></div>
                     
-                    <div className="flex justify-between text-emerald-400 font-bold bg-slate-900 -mx-4 p-4 mt-4 border-t border-emerald-900/50">
-                      <span>TOTAL COSTO</span><span>USD {Math.round(resultados.ticket.totalCostoVivienda).toLocaleString()}</span>
+                    <div className="flex justify-between text-emerald-400 font-bold bg-zinc-950 -mx-5 p-5 mt-5 border-t border-emerald-500/20 rounded-b-2xl">
+                      <span>TOTAL COSTO</span><span>${Math.round(resultados.ticket.totalCostoVivienda).toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
               )}
             </div>
 
-            <button 
-              onClick={guardarHistorial}
-              disabled={guardando}
-              className={`mt-10 relative z-10 w-full flex items-center justify-center font-bold py-4 px-6 rounded-xl transition-all duration-200 ${
-                guardando 
-                  ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
-                  : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg hover:shadow-blue-500/25 active:scale-[0.98]'
-              }`}
-            >
+            <button onClick={guardarHistorial} disabled={guardando} className={`mt-8 relative z-10 w-full flex items-center justify-center font-bold py-4 px-6 rounded-xl transition-all duration-200 ${guardando ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25 active:scale-[0.98]'}`}>
               <Save className="w-5 h-5 mr-2" />
               {guardando ? 'Guardando...' : 'Guardar Escenario'}
             </button>

@@ -26,6 +26,8 @@ export default function Home() {
           
           return {
             ...h,
+            // AQUI ESTA LA MAGIA: Redondeamos el número para que el Tooltip del gráfico no muestre decimales
+            resultado_precio_promedio_usd: Math.round(Number(h.resultado_precio_promedio_usd)),
             fecha: dateObj.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' }),
             nombreProyecto: h.proyectos?.nombre || 'Desconocido'
           }
@@ -39,7 +41,7 @@ export default function Home() {
             return {
               nombre: p.nombre,
               id: p.id,
-              ultimoPrecioUSD: ultimoRegistro ? Math.round(ultimoRegistro.resultado_precio_promedio_usd) : 0,
+              ultimoPrecioUSD: ultimoRegistro ? Math.round(Number(ultimoRegistro.resultado_precio_promedio_usd)) : 0,
             }
           }).filter(r => r.ultimoPrecioUSD > 0)
           

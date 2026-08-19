@@ -4,11 +4,11 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Coins } from 'lucide-react'
 
 export default function ProyectoCalculadora({ params }: { params: { id: string } }) {
   const [proyecto, setProyecto] = useState<any>(null)
   
-  // Variables de entrada (Ahora TODAS son editables)
   const [superficieVendible, setSuperficieVendible] = useState(5000)
   const [costoDuroM2, setCostoDuroM2] = useState(1200)
   const [margenObjetivo, setMargenObjetivo] = useState(0.20)
@@ -16,11 +16,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [canjeHonorarios, setCanjeHonorarios] = useState(0.10)
   const [tipoCambio, setTipoCambio] = useState(1500)
 
-  // Resultados y Estados
   const [resultados, setResultados] = useState<any>(null)
   const [guardando, setGuardando] = useState(false)
 
-  // Cargar datos iniciales del proyecto
   useEffect(() => {
     async function fetchProyecto() {
       const { data } = await supabase
@@ -31,7 +29,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       
       if (data) {
         setProyecto(data)
-        // Si el proyecto ya tiene metros cargados en la BD, los usamos como valor inicial
         if (data.superficie_vendible_m2) {
           setSuperficieVendible(data.superficie_vendible_m2)
         }
@@ -40,25 +37,23 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     fetchProyecto()
   }, [params.id])
 
-  // Recalcular en tiempo real cada vez que tocas un número
   useEffect(() => {
     if (proyecto) {
       const res = calcularPrecioSugerido({
-        superficieVendible: superficieVendible,
-        costoDuroM2: costoDuroM2,
+        superficieVendible,
+        costoDuroM2,
         canjeTierraPct: canjeTierra,
         canjeHonorariosPct: canjeHonorarios,
         tasaIIBB: 0.025,
         tasaTEM: 0.0125,
         comisionVenta: 0.035,
-        margenObjetivo: margenObjetivo,
-        tipoCambio: tipoCambio
+        margenObjetivo,
+        tipoCambio
       })
       setResultados(res)
     }
   }, [proyecto, superficieVendible, costoDuroM2, margenObjetivo, canjeTierra, canjeHonorarios, tipoCambio])
 
-  // Guardar en Historial
   async function guardarHistorial() {
     if (!resultados || !proyecto) return
     setGuardando(true)
@@ -77,7 +72,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       })
 
     setGuardando(false)
-
     if (error) {
       alert('Hubo un error al guardar: ' + error.message)
     } else {
@@ -85,92 +79,130 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     }
   }
 
-  if (!proyecto) return <div className="p-8 text-gray-600">Cargando datos del proyecto...</div>
+  if (!proyecto) return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="animate-pulse flex flex-col items-center">
+        <div className="h-12 w-12 bg-blue-200 rounded-full mb-4"></div>
+        <p className="text-slate-500 font-medium">Cargando entorno de simulación...</p>
+      </div>
+    </div>
+  )
 
   return (
-    <main className="min-h-screen bg-gray-50 p-8">
+    <main className="min-h-screen bg-slate-50 p-6 md:p-12 font-sans text-slate-900">
       <div className="max-w-6xl mx-auto">
         
-        {/* Encabezado */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+        {/* Navegación y Título */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-800">
-              ⚙️ Simulador: {proyecto.nombre}
+            <Link href="/" className="inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors mb-3">
+              <ArrowLeft className="w-4 h-4 mr-1" /> Volver al portafolio
+            </Link>
+            <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 flex items-center">
+              <Building2 className="w-8 h-8 mr-3 text-blue-500" />
+              {proyecto.nombre}
             </h1>
-            <p className="text-gray-500 mt-1">{proyecto.descripcion}</p>
+            <p className="text-slate-500 mt-2 text-lg">{proyecto.descripcion}</p>
           </div>
-          <Link href="/">
-            <button className="text-blue-600 hover:text-blue-800 font-medium underline">
-              &larr; Volver a Proyectos
-            </button>
-          </Link>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
-          {/* PANEL DE INPUTS (Ocupa 2 columnas) */}
-          <div className="lg:col-span-2 bg-white p-6 rounded-lg shadow border border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-800 mb-6 border-b pb-2">Ajuste de Variables</h2>
+          {/* PANEL DE INPUTS (8 Columnas) */}
+          <div className="lg:col-span-8 bg-white p-8 rounded-2xl shadow-sm border border-slate-200/60">
+            <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100">
+              <h2 className="text-xl font-bold text-slate-800 flex items-center">
+                <Calculator className="w-5 h-5 mr-2 text-slate-400" />
+                Variables de Negocio
+              </h2>
+            </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
               
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <label className="block text-sm font-bold text-blue-900 mb-1">Superficie Vendible (m²)</label>
-                <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded border border-gray-300 p-2 text-gray-900 focus:ring-blue-500 focus:border-blue-500" />
+              {/* Input Destacado */}
+              <div className="col-span-1 md:col-span-2 bg-blue-50/50 p-5 rounded-xl border border-blue-100">
+                <label className="block text-sm font-semibold text-blue-900 mb-2 flex items-center">
+                  <Building2 className="w-4 h-4 mr-2 text-blue-500" /> Superficie Vendible (m²)
+                </label>
+                <input 
+                  type="number" 
+                  value={superficieVendible} 
+                  onChange={(e) => setSuperficieVendible(Number(e.target.value))} 
+                  className="w-full rounded-lg border-0 bg-white px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-blue-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all font-medium text-lg" 
+                />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Costo Duro Obra (USD/m²)</label>
-                <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded border border-gray-300 p-2 text-gray-900 focus:ring-blue-500 focus:border-blue-500" />
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
+                  <DollarSign className="w-4 h-4 mr-1 text-slate-400" /> Costo Duro Obra (USD/m²)
+                </label>
+                <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Margen Objetivo (%)</label>
-                <input type="number" step="0.01" value={margenObjetivo} onChange={(e) => setMargenObjetivo(Number(e.target.value))} className="w-full rounded border border-gray-300 p-2 text-gray-900 focus:ring-blue-500 focus:border-blue-500" />
-                <p className="text-xs text-gray-500 mt-1">Ej: 0.20 = 20%</p>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
+                  <Coins className="w-4 h-4 mr-1 text-slate-400" /> Tipo de Cambio (ARS/USD)
+                </label>
+                <input type="number" value={tipoCambio} onChange={(e) => setTipoCambio(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">% Canje Tierra</label>
-                <input type="number" step="0.01" value={canjeTierra} onChange={(e) => setCanjeTierra(Number(e.target.value))} className="w-full rounded border border-gray-300 p-2 text-gray-900 focus:ring-blue-500 focus:border-blue-500" />
-                <p className="text-xs text-gray-500 mt-1">Ej: 0.13 = 13%</p>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
+                  <Percent className="w-4 h-4 mr-1 text-slate-400" /> Margen Objetivo
+                </label>
+                <input type="number" step="0.01" value={margenObjetivo} onChange={(e) => setMargenObjetivo(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">% Canje Honorarios</label>
-                <input type="number" step="0.01" value={canjeHonorarios} onChange={(e) => setCanjeHonorarios(Number(e.target.value))} className="w-full rounded border border-gray-300 p-2 text-gray-900 focus:ring-blue-500 focus:border-blue-500" />
-                <p className="text-xs text-gray-500 mt-1">Ej: 0.10 = 10%</p>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
+                  <Percent className="w-4 h-4 mr-1 text-slate-400" /> Canje Tierra
+                </label>
+                <input type="number" step="0.01" value={canjeTierra} onChange={(e) => setCanjeTierra(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Cambio (ARS/USD)</label>
-                <input type="number" value={tipoCambio} onChange={(e) => setTipoCambio(Number(e.target.value))} className="w-full rounded border border-gray-300 p-2 text-gray-900 focus:ring-blue-500 focus:border-blue-500" />
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
+                  <Percent className="w-4 h-4 mr-1 text-slate-400" /> Canje Honorarios
+                </label>
+                <input type="number" step="0.01" value={canjeHonorarios} onChange={(e) => setCanjeHonorarios(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
               </div>
             </div>
           </div>
 
-          {/* PANEL DE RESULTADOS (Ocupa 1 columna) */}
-          <div className="bg-slate-900 p-6 rounded-lg shadow text-white flex flex-col justify-between">
-            <div>
-              <h2 className="text-xl font-semibold mb-6 text-slate-200 border-b border-slate-700 pb-2">Resultados</h2>
+          {/* PANEL DE RESULTADOS (4 Columnas) */}
+          <div className="lg:col-span-4 bg-gradient-to-br from-slate-900 to-slate-800 p-8 rounded-2xl shadow-xl text-white flex flex-col justify-between relative overflow-hidden">
+            {/* Elemento decorativo de fondo */}
+            <div className="absolute top-0 right-0 -mt-8 -mr-8 w-32 h-32 bg-white opacity-5 rounded-full blur-2xl"></div>
+
+            <div className="relative z-10">
+              <h2 className="text-lg font-medium text-slate-300 mb-8 tracking-wide uppercase text-sm">Proyección Financiera</h2>
               
               {resultados && (
-                <div className="space-y-6">
+                <div className="space-y-8">
                   <div>
-                    <p className="text-slate-400 text-sm mb-1">Precio Sugerido (USD/m²)</p>
-                    <p className="text-5xl font-bold text-green-400">USD {Math.round(resultados.precioSugeridoUSD).toLocaleString()}</p>
+                    <p className="text-slate-400 text-sm font-medium mb-2">Precio Sugerido Promedio</p>
+                    <div className="flex items-baseline">
+                      <span className="text-2xl font-semibold text-slate-300 mr-2">USD</span>
+                      <p className="text-5xl font-extrabold text-white tracking-tight">
+                        {Math.round(resultados.precioSugeridoUSD).toLocaleString()}
+                      </p>
+                    </div>
                   </div>
                   
                   <div>
-                    <p className="text-slate-400 text-sm mb-1">Precio en Pesos (ARS/m²)</p>
-                    <p className="text-3xl font-medium text-slate-100">$ {Math.round(resultados.precioSugeridoARS).toLocaleString()}</p>
+                    <p className="text-slate-400 text-sm font-medium mb-2">Precio en Pesos (m²)</p>
+                    <p className="text-3xl font-bold text-slate-200">
+                      $ {Math.round(resultados.precioSugeridoARS).toLocaleString()}
+                    </p>
                   </div>
 
-                  <div className="pt-4 border-t border-slate-700">
-                    <p className="text-sm text-slate-300 flex justify-between">
-                      <span>Metros Libres Venta:</span> 
-                      <span className="font-bold text-white">{Math.round(resultados.metrosLibres)} m²</span>
-                    </p>
+                  <div className="pt-6 border-t border-slate-700/50">
+                    <div className="flex justify-between items-center bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
+                      <span className="text-sm font-medium text-slate-300">Metros Libres (Venta)</span> 
+                      <span className="font-bold text-lg text-emerald-400">
+                        {Math.round(resultados.metrosLibres).toLocaleString()} m²
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -179,11 +211,14 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             <button 
               onClick={guardarHistorial}
               disabled={guardando}
-              className={`mt-8 w-full font-bold py-4 px-4 rounded transition-all shadow-lg ${
-                guardando ? 'bg-slate-600 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500 text-white'
+              className={`mt-10 relative z-10 w-full flex items-center justify-center font-bold py-4 px-6 rounded-xl transition-all duration-200 ${
+                guardando 
+                  ? 'bg-slate-700 text-slate-400 cursor-not-allowed' 
+                  : 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg hover:shadow-blue-500/25 active:scale-[0.98]'
               }`}
             >
-              {guardando ? 'Guardando...' : '💾 Guardar Escenario'}
+              <Save className="w-5 h-5 mr-2" />
+              {guardando ? 'Guardando...' : 'Guardar Escenario'}
             </button>
           </div>
         </div>

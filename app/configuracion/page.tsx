@@ -46,7 +46,7 @@ export default function ConfiguracionGlobal() {
             <Settings className="w-8 h-8 mr-4 text-indigo-500" />
             Parámetros Globales
           </h1>
-          <p className="text-zinc-500 mt-2 font-medium">Estas variables impactan en las simulaciones de todos los proyectos.</p>
+          <p className="text-zinc-500 mt-2 font-medium">Estas variables macro impactan en las simulaciones de todos los proyectos.</p>
         </div>
 
         <div className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-zinc-200/60">
@@ -72,14 +72,6 @@ export default function ConfiguracionGlobal() {
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3">Comisión Inmobiliaria (%)</label>
               <input type="number" step="0.001" value={config.comision_venta} onChange={(e) => setConfig({...config, comision_venta: Number(e.target.value)})} className="w-full rounded-xl bg-[#F4F4F5] border-0 px-4 py-3 font-semibold text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3">Gastos Administrativos (%)</label>
-              <input type="number" step="0.001" value={config.gastos_admin} onChange={(e) => setConfig({...config, gastos_admin: Number(e.target.value)})} className="w-full rounded-xl bg-[#F4F4F5] border-0 px-4 py-3 font-semibold text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3">Imprevistos de Obra (%)</label>
-              <input type="number" step="0.001" value={config.imprevistos} onChange={(e) => setConfig({...config, imprevistos: Number(e.target.value)})} className="w-full rounded-xl bg-[#F4F4F5] border-0 px-4 py-3 font-semibold text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all" />
             </div>
 
           </div>

@@ -37,7 +37,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       const [resProyecto, resConfig, resHistorial] = await Promise.all([
         supabase.from('proyectos').select('*').eq('id', params.id).single(),
         supabase.from('configuracion_global').select('*').eq('id', 1).single(),
-        supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('created_at', { ascending: false }).limit(1)
+        supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('id', { ascending: false }).limit(1)
       ])
       
       if (resProyecto.data) {

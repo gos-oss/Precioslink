@@ -1,5 +1,5 @@
 'use client'
-
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Coins, Edit2, Check, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
@@ -8,6 +8,8 @@ import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Coins } fr
 
 export default function ProyectoCalculadora({ params }: { params: { id: string } }) {
   const [proyecto, setProyecto] = useState<any>(null)
+  const [editandoNombre, setEditandoNombre] = useState(false)
+  const [nuevoNombre, setNuevoNombre] = useState('')
   
   const [superficieVendible, setSuperficieVendible] = useState(5000)
   const [costoDuroM2, setCostoDuroM2] = useState(1200)
@@ -19,6 +21,14 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [resultados, setResultados] = useState<any>(null)
   const [guardando, setGuardando] = useState(false)
 
+  async function guardarNombre() {
+  if (!nuevoNombre.trim()) return
+  const { error } = await supabase.from('proyectos').update({ nombre: nuevoNombre }).eq('id', proyecto.id)
+  if (!error) {
+    setProyecto({ ...proyecto, nombre: nuevoNombre })
+    setEditandoNombre(false)
+  }
+}
   useEffect(() => {
     async function fetchProyecto() {
       const { data } = await supabase
@@ -101,7 +111,27 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 flex items-center">
               <Building2 className="w-8 h-8 mr-3 text-blue-500" />
               {proyecto.nombre}
-            </h1>
+         {editandoNombre ? (
+  <div className="flex items-center mt-2">
+    <Building2 className="w-8 h-8 mr-3 text-blue-500" />
+    <input 
+      value={nuevoNombre} 
+      onChange={(e) => setNuevoNombre(e.target.value)}
+      className="text-3xl font-extrabold text-slate-900 border-b-2 border-blue-500 focus:outline-none bg-transparent"
+      autoFocus
+    />
+    <button onClick={guardarNombre} className="ml-3 text-green-600 hover:bg-green-50 p-2 rounded"><Check className="w-5 h-5"/></button>
+    <button onClick={() => setEditandoNombre(false)} className="ml-1 text-red-500 hover:bg-red-50 p-2 rounded"><X className="w-5 h-5"/></button>
+  </div>
+) : (
+  <h1 className="text-4xl font-extrabold text-slate-900 flex items-center mt-2 group">
+    <Building2 className="w-8 h-8 mr-3 text-blue-500" />
+    {proyecto.nombre}
+    <button onClick={() => { setNuevoNombre(proyecto.nombre); setEditandoNombre(true); }} className="ml-4 text-slate-300 hover:text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity">
+      <Edit2 className="w-5 h-5" />
+    </button>
+  </h1>
+)}
             <p className="text-slate-500 mt-2 text-lg">{proyecto.descripcion}</p>
           </div>
         </div>

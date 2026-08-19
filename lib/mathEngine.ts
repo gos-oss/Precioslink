@@ -11,30 +11,63 @@ export interface PricingInputs {
 }
 
 export function calcularPrecioSugerido(inputs: PricingInputs) {
-  // 1. Metros Libres Reales
-  const metrosLibres = inputs.superficieVendible * (1 - (inputs.canjeTierraPct + inputs.canjeHonorariosPct));
+  // Parámetros fijos según usos de industria (luego se pueden hacer editables)
+  const pctImprevistos = 0.06; // 6%
+  const pctIVA = 0.0835; // Aprox 8.35% sobre costo duro según tu imagen
+  const pctAdmin = 0.0589; // Aprox 5.89%
   
-  // 2. Costo Directo Total
-  const costoDirectoTotal = inputs.superficieVendible * inputs.costoDuroM2;
+  // 1. Metros Libres
+  const porcentajeCanjes = inputs.canjeTierraPct + inputs.canjeHonorariosPct;
+  const metrosLibres = inputs.superficieVendible * (1 - porcentajeCanjes);
+
+  // 2. Primer Bloque: Costos Directos
+  const construccion = inputs.superficieVendible * inputs.costoDuroM2;
+  const imprevistos = construccion * pctImprevistos;
+  const iva = construccion * pctIVA;
+  const administracion = construccion * pctAdmin;
+  const terrenoFijo = 0; // Si hay aportes en USD fijos
+  const honorarioFijo = 0;
   
-  // 3. Grossing-up Impositivo (Asegura el margen sobre ingresos brutos)
-  const factorRetencion = 1 - ((inputs.tasaIIBB + inputs.tasaTEM) * ((1 - inputs.canjeTierraPct - inputs.canjeHonorariosPct) * (1 + inputs.margenObjetivo) / (1 - inputs.canjeTierraPct - inputs.canjeHonorariosPct)));
-  
-  const subtotalAntesComision = costoDirectoTotal / factorRetencion;
-  
-  // 4. Costo Integral Total
-  const gastosComerciales = (subtotalAntesComision / (1 - inputs.margenObjetivo)) * inputs.comisionVenta;
-  const costoIntegralTotal = subtotalAntesComision + gastosComerciales;
-  
+  const subtotal1 = construccion + imprevistos + iva + administracion + terrenoFijo + honorarioFijo;
+
+  // 3. Grossing-up y Segundo Bloque: Gastos de Comercialización e Impuestos
+  const sumaDeducciones = inputs.tasaIIBB + inputs.tasaTEM + inputs.comisionVenta + inputs.margenObjetivo;
+  const ventasTotalesNecesarias = subtotal1 / (1 - sumaDeducciones);
+
+  const iibbYTem = ventasTotalesNecesarias * (inputs.tasaIIBB + inputs.tasaTEM);
+  const comercializacion = ventasTotalesNecesarias * inputs.comisionVenta;
+
+  const subtotal2 = subtotal1 + iibbYTem + comercializacion;
+
+  // 4. Tercer Bloque: Valorización del Canje
+  const terrenoCanje = ventasTotalesNecesarias * inputs.canjeTierraPct;
+  const honorariosCanje = ventasTotalesNecesarias * inputs.canjeHonorariosPct;
+
+  const totalCostoVivienda = subtotal2 + terrenoCanje + honorariosCanje;
+
   // 5. Precios Finales
-  const costoRealPorMetroLibre = costoIntegralTotal / Math.max(metrosLibres, 1);
-  const precioSugeridoUSD = costoRealPorMetroLibre / (1 - inputs.margenObjetivo);
+  const precioSugeridoUSD = ventasTotalesNecesarias / Math.max(metrosLibres, 1);
   const precioSugeridoARS = precioSugeridoUSD * inputs.tipoCambio;
 
   return {
     metrosLibres,
-    costoIntegralTotal,
     precioSugeridoUSD,
-    precioSugeridoARS
+    precioSugeridoARS,
+    // Enviamos el ticket completo a la pantalla
+    ticket: {
+      construccion,
+      imprevistos,
+      iva,
+      administracion,
+      terrenoFijo,
+      honorarioFijo,
+      subtotal1,
+      iibbYTem,
+      comercializacion,
+      subtotal2,
+      terrenoCanje,
+      honorariosCanje,
+      totalCostoVivienda
+    }
   };
 }

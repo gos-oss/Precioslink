@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2 } from 'lucide-react'
 
 const getTodayDate = () => {
   const d = new Date()
@@ -29,6 +29,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [fechaReferencia, setFechaReferencia] = useState(getTodayDate())
   const [resultados, setResultados] = useState<any>(null)
   const [guardando, setGuardando] = useState(false)
+  
+  // NUEVO: Estado para manejar la notificación flotante (Toast)
+  const [notificacion, setNotificacion] = useState({ mostrar: false, mensaje: '', tipo: 'exito' })
 
   useEffect(() => {
     async function fetchData() {
@@ -72,6 +75,12 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     }
   }, [proyecto, configGlobal, superficieVendible, costoDuroM2, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos, pctAjuste])
 
+  // Función auxiliar para mostrar notificaciones
+  const mostrarNotificacion = (mensaje: string, tipo: 'exito' | 'error' = 'exito') => {
+    setNotificacion({ mostrar: true, mensaje, tipo })
+    setTimeout(() => setNotificacion({ mostrar: false, mensaje: '', tipo: 'exito' }), 3500)
+  }
+
   async function guardarHistorial() {
     if (!resultados || !proyecto || !configGlobal) return
     setGuardando(true)
@@ -88,34 +97,48 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     })
     
     setGuardando(false)
-    if (error) alert('Error: ' + error.message)
-    else alert('¡Corte mensual guardado exitosamente!')
+    if (error) {
+      mostrarNotificacion('Error: ' + error.message, 'error')
+    } else {
+      mostrarNotificacion('Escenario guardado exitosamente')
+    }
   }
 
   async function guardarNombre() {
     if (!nuevoNombre.trim()) return
     const { error } = await supabase.from('proyectos').update({ nombre: nuevoNombre }).eq('id', proyecto.id)
-    if (!error) { setProyecto({ ...proyecto, nombre: nuevoNombre }); setEditandoNombre(false); }
+    if (!error) { 
+      setProyecto({ ...proyecto, nombre: nuevoNombre })
+      setEditandoNombre(false)
+      mostrarNotificacion('Nombre actualizado correctamente')
+    }
   }
 
   if (!proyecto || !configGlobal) return (
     <div className="min-h-screen bg-zinc-100 flex items-center justify-center">
       <div className="flex flex-col items-center space-y-4">
-        <Activity className="w-8 h-8 text-zinc-400 animate-pulse" />
-        <p className="text-zinc-500 font-medium tracking-wide uppercase text-sm">Sincronizando modelos...</p>
+        <Activity className="w-8 h-8 text-indigo-500 animate-pulse" />
+        <p className="text-zinc-500 font-bold tracking-widest uppercase text-xs">Sincronizando modelos...</p>
       </div>
     </div>
   )
 
   return (
-    <main className="min-h-screen bg-zinc-100 p-6 md:p-10 font-sans text-zinc-900 selection:bg-indigo-100">
+    <main className="min-h-screen bg-zinc-100 p-6 md:p-10 font-sans text-zinc-900 selection:bg-indigo-100 relative">
+      
+      {/* NOTIFICACIÓN FLOTANTE (TOAST) */}
+      <div className={`fixed bottom-8 right-8 z-50 flex items-center bg-zinc-900 text-white px-6 py-4 rounded-2xl shadow-2xl border border-zinc-700 transition-all duration-500 transform ${notificacion.mostrar ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
+        {notificacion.tipo === 'exito' ? <CheckCircle2 className="w-5 h-5 text-emerald-400 mr-3" /> : <X className="w-5 h-5 text-rose-400 mr-3" />}
+        <span className="font-medium text-sm">{notificacion.mensaje}</span>
+      </div>
+
       <div className="max-w-6xl mx-auto space-y-8">
         
         {/* ENCABEZADO */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <Link href="/" className="inline-flex items-center text-sm font-semibold text-indigo-600 hover:text-indigo-800 transition-colors mb-4">
-              <ArrowLeft className="w-4 h-4 mr-1" /> Volver al Dashboard
+            <Link href="/" className="inline-flex items-center text-sm font-bold text-indigo-600 hover:text-indigo-800 transition-colors mb-4 tracking-wide">
+              <ArrowLeft className="w-4 h-4 mr-1" /> VOLVER AL PORTAFOLIO
             </Link>
             {editandoNombre ? (
               <div className="flex items-center">
@@ -131,8 +154,8 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             )}
             <p className="text-zinc-500 mt-2 font-medium">{proyecto.descripcion}</p>
           </div>
-          <div className="bg-white px-5 py-3 rounded-xl border border-zinc-200/60 shadow-sm flex items-center">
-            <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider mr-3">T.C. Activo</span>
+          <div className="bg-white px-5 py-3 rounded-2xl border border-zinc-200/60 shadow-sm flex items-center">
+            <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest mr-3">T.C. Activo</span>
             <span className="text-indigo-600 font-black text-lg">${configGlobal.tipo_cambio}</span>
           </div>
         </div>
@@ -141,44 +164,43 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           {/* PANEL DE INPUTS */}
           <div className="lg:col-span-8 bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
             <div className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-100">
-              <h2 className="text-lg font-bold text-zinc-800 flex items-center uppercase tracking-wide">
+              <h2 className="text-sm font-bold text-zinc-800 flex items-center uppercase tracking-widest">
                 <Calculator className="w-5 h-5 mr-3 text-indigo-500" /> Configuración del Escenario
               </h2>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Building2 className="w-4 h-4 mr-2 text-indigo-500" /> Superficie Vendible (m²)</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Building2 className="w-4 h-4 mr-2 text-indigo-500" /> Superficie Vendible (m²)</label>
                 <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-bold" />
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> Costo Duro Obra (USD/m²)</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> Costo Duro Obra (USD/m²)</label>
                 <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Margen Objetivo</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Margen Objetivo</label>
                 <input type="number" step="0.01" value={margenObjetivo} onChange={(e) => setMargenObjetivo(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Tierra</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Tierra</label>
                 <input type="number" step="0.01" value={canjeTierra} onChange={(e) => setCanjeTierra(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Honorarios</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Honorarios</label>
                 <input type="number" step="0.01" value={canjeHonorarios} onChange={(e) => setCanjeHonorarios(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Gastos Adm. (Obra)</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Gastos Adm. (Obra)</label>
                 <input type="number" step="0.001" value={pctAdmin} onChange={(e) => setPctAdmin(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Imprevistos (Obra)</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Imprevistos (Obra)</label>
                 <input type="number" step="0.001" value={pctImprevistos} onChange={(e) => setPctImprevistos(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
               
-              {/* LA CAJA DE AJUSTE CON EL NUEVO NOMBRE */}
               <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
-                <label className="block text-xs font-bold uppercase tracking-wider text-indigo-700 mb-3 flex items-center"><SlidersHorizontal className="w-4 h-4 mr-2" /> Pricing Premium/Discount (%)</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-indigo-700 mb-3 flex items-center"><SlidersHorizontal className="w-4 h-4 mr-2" /> Pricing Premium/Discount (%)</label>
                 <input type="number" step="0.01" value={pctAjuste} onChange={(e) => setPctAjuste(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-indigo-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-bold text-indigo-700" />
                 <p className="text-[10px] text-indigo-400 mt-2 font-medium">Ej: 0.05 para +5% premium, -0.02 para 2% discount.</p>
               </div>
@@ -190,18 +212,18 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
             <div className="relative z-10">
-              <h2 className="text-xs font-bold text-zinc-400 mb-6 tracking-widest uppercase">Proyección Financiera</h2>
+              <h2 className="text-[11px] font-bold text-zinc-400 mb-6 tracking-widest uppercase">Proyección Financiera</h2>
               {resultados && (
                 <div className="space-y-6">
                   <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800 backdrop-blur-sm">
-                    <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2 font-bold">Precio Promedio</p>
+                    <p className="text-zinc-500 text-[11px] uppercase tracking-widest mb-2 font-bold">Precio Promedio</p>
                     <div className="flex items-baseline">
                       <span className="text-xl font-bold text-zinc-400 mr-2">USD</span>
                       <p className="text-4xl font-black text-white tracking-tight">{Math.round(resultados.precioSugeridoUSD).toLocaleString()}</p>
                     </div>
                   </div>
 
-                  <div className="bg-zinc-900 p-5 rounded-2xl font-mono text-sm text-zinc-400 border border-zinc-800">
+                  <div className="bg-zinc-900 p-5 rounded-2xl font-mono text-[13px] text-zinc-400 border border-zinc-800 shadow-inner">
                     <div className="flex justify-between text-white font-bold mb-2"><span>CONSTRUCCION</span><span>${Math.round(resultados.ticket.construccion).toLocaleString()}</span></div>
                     <div className="flex justify-between pl-3"><span>Imprevistos</span><span>{Math.round(resultados.ticket.imprevistos).toLocaleString()}</span></div>
                     <div className="flex justify-between pl-3"><span>IVA</span><span>{Math.round(resultados.ticket.iva).toLocaleString()}</span></div>
@@ -220,7 +242,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
             <div className="mt-8 relative z-10">
               <div className="mb-4">
-                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2 flex items-center">
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 flex items-center">
                   <Calendar className="w-4 h-4 mr-2" /> Fecha del Corte
                 </label>
                 <input 
@@ -231,7 +253,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                 />
               </div>
 
-              <button onClick={guardarHistorial} disabled={guardando} className={`w-full flex items-center justify-center font-bold py-4 px-6 rounded-xl transition-all duration-200 ${guardando ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg hover:shadow-indigo-500/25 active:scale-[0.98]'}`}>
+              <button onClick={guardarHistorial} disabled={guardando} className={`w-full flex items-center justify-center font-bold py-4 px-6 rounded-xl transition-all duration-300 ${guardando ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-[0_0_20px_rgba(79,70,229,0.3)] hover:shadow-[0_0_25px_rgba(79,70,229,0.5)] active:scale-[0.98] hover:-translate-y-1'}`}>
                 <Save className="w-5 h-5 mr-2" />
                 {guardando ? 'Guardando Corte...' : 'Fijar Corte Mensual'}
               </button>

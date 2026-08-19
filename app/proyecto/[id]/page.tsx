@@ -12,11 +12,14 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [editandoNombre, setEditandoNombre] = useState(false)
   const [nuevoNombre, setNuevoNombre] = useState('')
   
+  // VARIABLES DEL PROYECTO
   const [superficieVendible, setSuperficieVendible] = useState(5000)
   const [costoDuroM2, setCostoDuroM2] = useState(1200)
   const [margenObjetivo, setMargenObjetivo] = useState(0.20)
   const [canjeTierra, setCanjeTierra] = useState(0.13)
   const [canjeHonorarios, setCanjeHonorarios] = useState(0.10)
+  const [pctAdmin, setPctAdmin] = useState(0.0589)
+  const [pctImprevistos, setPctImprevistos] = useState(0.06)
 
   const [resultados, setResultados] = useState<any>(null)
   const [guardando, setGuardando] = useState(false)
@@ -30,6 +33,8 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       if (resProyecto.data) {
         setProyecto(resProyecto.data)
         if (resProyecto.data.superficie_vendible_m2) setSuperficieVendible(resProyecto.data.superficie_vendible_m2)
+        if (resProyecto.data.gastos_admin != null) setPctAdmin(resProyecto.data.gastos_admin)
+        if (resProyecto.data.imprevistos != null) setPctImprevistos(resProyecto.data.imprevistos)
       }
       if (resConfig.data) setConfigGlobal(resConfig.data)
     }
@@ -43,12 +48,14 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           superficieVendible, costoDuroM2, canjeTierraPct: canjeTierra, canjeHonorariosPct: canjeHonorarios,
           margenObjetivo, tasaIIBB: configGlobal.tasa_iibb, tasaTEM: configGlobal.tasa_tem,
           comisionVenta: configGlobal.comision_venta, tipoCambio: configGlobal.tipo_cambio,
-          pctImprevistos: configGlobal.imprevistos, pctIVA: configGlobal.tasa_iva, pctAdmin: configGlobal.gastos_admin
+          pctIVA: configGlobal.tasa_iva,
+          pctAdmin: pctAdmin,             // Ahora es del proyecto
+          pctImprevistos: pctImprevistos  // Ahora es del proyecto
         })
         setResultados(res)
       } catch (error) { console.error(error) }
     }
-  }, [proyecto, configGlobal, superficieVendible, costoDuroM2, margenObjetivo, canjeTierra, canjeHonorarios])
+  }, [proyecto, configGlobal, superficieVendible, costoDuroM2, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos])
 
   async function guardarHistorial() {
     if (!resultados || !proyecto || !configGlobal) return
@@ -124,6 +131,8 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8">
+              
+              {/* Bloque Superficie (Ocupa 2 columnas) */}
               <div className="col-span-1 md:col-span-2 bg-[#F4F4F5] p-6 rounded-2xl border border-zinc-200">
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center">
                   <Building2 className="w-4 h-4 mr-2 text-indigo-500" /> Superficie Vendible (m²)
@@ -131,24 +140,34 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                 <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-black text-xl" />
               </div>
 
+              {/* Fila 2 */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> Costo Duro Obra (USD/m²)</label>
                 <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
-
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Margen Objetivo</label>
                 <input type="number" step="0.01" value={margenObjetivo} onChange={(e) => setMargenObjetivo(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
 
+              {/* Fila 3 */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Tierra</label>
                 <input type="number" step="0.01" value={canjeTierra} onChange={(e) => setCanjeTierra(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
-
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Honorarios</label>
                 <input type="number" step="0.01" value={canjeHonorarios} onChange={(e) => setCanjeHonorarios(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+              </div>
+
+              {/* Fila 4: NUEVAS VARIABLES */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Gastos Adm. (Obra)</label>
+                <input type="number" step="0.001" value={pctAdmin} onChange={(e) => setPctAdmin(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Imprevistos (Obra)</label>
+                <input type="number" step="0.001" value={pctImprevistos} onChange={(e) => setPctImprevistos(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
             </div>
           </div>

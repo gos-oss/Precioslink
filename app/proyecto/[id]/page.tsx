@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal } from 'lucide-react'
 
 const getTodayDate = () => {
   const d = new Date()
@@ -24,6 +24,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [canjeHonorarios, setCanjeHonorarios] = useState(0.10)
   const [pctAdmin, setPctAdmin] = useState(0.0589)
   const [pctImprevistos, setPctImprevistos] = useState(0.06)
+  const [pctAjuste, setPctAjuste] = useState(0)
   
   const [fechaReferencia, setFechaReferencia] = useState(getTodayDate())
   const [resultados, setResultados] = useState<any>(null)
@@ -42,6 +43,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
         if (resProyecto.data.superficie_vendible_m2) setSuperficieVendible(resProyecto.data.superficie_vendible_m2)
         if (resProyecto.data.gastos_admin != null) setPctAdmin(resProyecto.data.gastos_admin)
         if (resProyecto.data.imprevistos != null) setPctImprevistos(resProyecto.data.imprevistos)
+        if (resProyecto.data.pct_ajuste != null) setPctAjuste(resProyecto.data.pct_ajuste)
       }
       if (resConfig.data) setConfigGlobal(resConfig.data)
 
@@ -50,6 +52,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
         if (ultimo.costo_duro_m2) setCostoDuroM2(ultimo.costo_duro_m2)
         if (ultimo.canje_tierra_porcentaje != null) setCanjeTierra(ultimo.canje_tierra_porcentaje)
         if (ultimo.margen_objetivo != null) setMargenObjetivo(ultimo.margen_objetivo)
+        if (ultimo.pct_ajuste != null) setPctAjuste(ultimo.pct_ajuste)
       }
     }
     fetchData()
@@ -62,24 +65,26 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           superficieVendible, costoDuroM2, canjeTierraPct: canjeTierra, canjeHonorariosPct: canjeHonorarios,
           margenObjetivo, tasaIIBB: configGlobal.tasa_iibb, tasaTEM: configGlobal.tasa_tem,
           comisionVenta: configGlobal.comision_venta, tipoCambio: configGlobal.tipo_cambio,
-          pctIVA: configGlobal.tasa_iva, pctAdmin, pctImprevistos
+          pctIVA: configGlobal.tasa_iva, pctAdmin, pctImprevistos, pctAjuste
         })
         setResultados(res)
       } catch (error) { console.error(error) }
     }
-  }, [proyecto, configGlobal, superficieVendible, costoDuroM2, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos])
+  }, [proyecto, configGlobal, superficieVendible, costoDuroM2, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos, pctAjuste])
 
   async function guardarHistorial() {
     if (!resultados || !proyecto || !configGlobal) return
     setGuardando(true)
 
-    await supabase.from('proyectos').update({ superficie_vendible_m2: superficieVendible, gastos_admin: pctAdmin, imprevistos: pctImprevistos }).eq('id', proyecto.id)
+    await supabase.from('proyectos').update({ 
+      superficie_vendible_m2: superficieVendible, gastos_admin: pctAdmin, imprevistos: pctImprevistos, pct_ajuste: pctAjuste 
+    }).eq('id', proyecto.id)
 
     const { error } = await supabase.from('historial_versiones_proyecto').insert({
       id_proyecto: proyecto.id, tipo_cambio: configGlobal.tipo_cambio, costo_duro_m2: costoDuroM2,
       canje_tierra_porcentaje: canjeTierra, margen_objetivo: margenObjetivo, resultado_metros_libres: resultados.metrosLibres,
       resultado_costo_integral_total_usd: resultados.ticket.totalCostoVivienda, resultado_precio_promedio_usd: resultados.precioSugeridoUSD,
-      fecha_referencia: fechaReferencia
+      fecha_referencia: fechaReferencia, pct_ajuste: pctAjuste
     })
     
     setGuardando(false)
@@ -142,9 +147,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8">
-              <div className="col-span-1 md:col-span-2 bg-zinc-50 p-6 rounded-2xl border border-zinc-200">
+              <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Building2 className="w-4 h-4 mr-2 text-indigo-500" /> Superficie Vendible (m²)</label>
-                <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-black text-xl" />
+                <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-bold" />
               </div>
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> Costo Duro Obra (USD/m²)</label>
@@ -169,6 +174,13 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Imprevistos (Obra)</label>
                 <input type="number" step="0.001" value={pctImprevistos} onChange={(e) => setPctImprevistos(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+              </div>
+              
+              {/* LA CAJA DE AJUSTE CON EL NUEVO NOMBRE */}
+              <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                <label className="block text-xs font-bold uppercase tracking-wider text-indigo-700 mb-3 flex items-center"><SlidersHorizontal className="w-4 h-4 mr-2" /> Pricing Premium/Discount (%)</label>
+                <input type="number" step="0.01" value={pctAjuste} onChange={(e) => setPctAjuste(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-indigo-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-bold text-indigo-700" />
+                <p className="text-[10px] text-indigo-400 mt-2 font-medium">Ej: 0.05 para +5% premium, -0.02 para 2% discount.</p>
               </div>
             </div>
           </div>

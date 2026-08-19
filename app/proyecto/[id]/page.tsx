@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin } from 'lucide-react'
 
 const getTodayDate = () => {
   const d = new Date()
@@ -19,6 +19,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   
   const [superficieVendible, setSuperficieVendible] = useState(5000)
   const [costoDuroM2, setCostoDuroM2] = useState(1200)
+  const [valorTerrenoUSD, setValorTerrenoUSD] = useState(0) // NUEVO ESTADO
   const [margenObjetivo, setMargenObjetivo] = useState(0.20)
   const [canjeTierra, setCanjeTierra] = useState(0.13)
   const [canjeHonorarios, setCanjeHonorarios] = useState(0.10)
@@ -30,7 +31,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [resultados, setResultados] = useState<any>(null)
   const [guardando, setGuardando] = useState(false)
   
-  // NUEVO: Estado para manejar la notificación flotante (Toast)
   const [notificacion, setNotificacion] = useState({ mostrar: false, mensaje: '', tipo: 'exito' })
 
   useEffect(() => {
@@ -44,6 +44,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       if (resProyecto.data) {
         setProyecto(resProyecto.data)
         if (resProyecto.data.superficie_vendible_m2) setSuperficieVendible(resProyecto.data.superficie_vendible_m2)
+        if (resProyecto.data.valor_terreno_usd != null) setValorTerrenoUSD(resProyecto.data.valor_terreno_usd)
         if (resProyecto.data.gastos_admin != null) setPctAdmin(resProyecto.data.gastos_admin)
         if (resProyecto.data.imprevistos != null) setPctImprevistos(resProyecto.data.imprevistos)
         if (resProyecto.data.pct_ajuste != null) setPctAjuste(resProyecto.data.pct_ajuste)
@@ -53,6 +54,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       if (resHistorial.data && resHistorial.data.length > 0) {
         const ultimo = resHistorial.data[0]
         if (ultimo.costo_duro_m2) setCostoDuroM2(ultimo.costo_duro_m2)
+        if (ultimo.valor_terreno_usd != null) setValorTerrenoUSD(ultimo.valor_terreno_usd)
         if (ultimo.canje_tierra_porcentaje != null) setCanjeTierra(ultimo.canje_tierra_porcentaje)
         if (ultimo.margen_objetivo != null) setMargenObjetivo(ultimo.margen_objetivo)
         if (ultimo.pct_ajuste != null) setPctAjuste(ultimo.pct_ajuste)
@@ -65,7 +67,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     if (proyecto && configGlobal) {
       try {
         const res = calcularPrecioSugerido({
-          superficieVendible, costoDuroM2, canjeTierraPct: canjeTierra, canjeHonorariosPct: canjeHonorarios,
+          superficieVendible, costoDuroM2, valorTerrenoUSD, canjeTierraPct: canjeTierra, canjeHonorariosPct: canjeHonorarios,
           margenObjetivo, tasaIIBB: configGlobal.tasa_iibb, tasaTEM: configGlobal.tasa_tem,
           comisionVenta: configGlobal.comision_venta, tipoCambio: configGlobal.tipo_cambio,
           pctIVA: configGlobal.tasa_iva, pctAdmin, pctImprevistos, pctAjuste
@@ -73,9 +75,8 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
         setResultados(res)
       } catch (error) { console.error(error) }
     }
-  }, [proyecto, configGlobal, superficieVendible, costoDuroM2, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos, pctAjuste])
+  }, [proyecto, configGlobal, superficieVendible, costoDuroM2, valorTerrenoUSD, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos, pctAjuste])
 
-  // Función auxiliar para mostrar notificaciones
   const mostrarNotificacion = (mensaje: string, tipo: 'exito' | 'error' = 'exito') => {
     setNotificacion({ mostrar: true, mensaje, tipo })
     setTimeout(() => setNotificacion({ mostrar: false, mensaje: '', tipo: 'exito' }), 3500)
@@ -86,22 +87,19 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     setGuardando(true)
 
     await supabase.from('proyectos').update({ 
-      superficie_vendible_m2: superficieVendible, gastos_admin: pctAdmin, imprevistos: pctImprevistos, pct_ajuste: pctAjuste 
+      superficie_vendible_m2: superficieVendible, gastos_admin: pctAdmin, imprevistos: pctImprevistos, pct_ajuste: pctAjuste, valor_terreno_usd: valorTerrenoUSD 
     }).eq('id', proyecto.id)
 
     const { error } = await supabase.from('historial_versiones_proyecto').insert({
-      id_proyecto: proyecto.id, tipo_cambio: configGlobal.tipo_cambio, costo_duro_m2: costoDuroM2,
+      id_proyecto: proyecto.id, tipo_cambio: configGlobal.tipo_cambio, costo_duro_m2: costoDuroM2, valor_terreno_usd: valorTerrenoUSD,
       canje_tierra_porcentaje: canjeTierra, margen_objetivo: margenObjetivo, resultado_metros_libres: resultados.metrosLibres,
       resultado_costo_integral_total_usd: resultados.ticket.totalCostoVivienda, resultado_precio_promedio_usd: resultados.precioSugeridoUSD,
       fecha_referencia: fechaReferencia, pct_ajuste: pctAjuste
     })
     
     setGuardando(false)
-    if (error) {
-      mostrarNotificacion('Error: ' + error.message, 'error')
-    } else {
-      mostrarNotificacion('Escenario guardado exitosamente')
-    }
+    if (error) mostrarNotificacion('Error: ' + error.message, 'error')
+    else mostrarNotificacion('Escenario guardado exitosamente')
   }
 
   async function guardarNombre() {
@@ -126,7 +124,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   return (
     <main className="min-h-screen bg-zinc-100 p-6 md:p-10 font-sans text-zinc-900 selection:bg-indigo-100 relative">
       
-      {/* NOTIFICACIÓN FLOTANTE (TOAST) */}
       <div className={`fixed bottom-8 right-8 z-50 flex items-center bg-zinc-900 text-white px-6 py-4 rounded-2xl shadow-2xl border border-zinc-700 transition-all duration-500 transform ${notificacion.mostrar ? 'translate-y-0 opacity-100' : 'translate-y-10 opacity-0 pointer-events-none'}`}>
         {notificacion.tipo === 'exito' ? <CheckCircle2 className="w-5 h-5 text-emerald-400 mr-3" /> : <X className="w-5 h-5 text-rose-400 mr-3" />}
         <span className="font-medium text-sm">{notificacion.mensaje}</span>
@@ -134,7 +131,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
       <div className="max-w-6xl mx-auto space-y-8">
         
-        {/* ENCABEZADO */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <Link href="/" className="inline-flex items-center text-sm font-bold text-indigo-600 hover:text-indigo-800 transition-colors mb-4 tracking-wide">
@@ -161,7 +157,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* PANEL DE INPUTS */}
           <div className="lg:col-span-8 bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
             <div className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-100">
               <h2 className="text-sm font-bold text-zinc-800 flex items-center uppercase tracking-widest">
@@ -170,24 +165,32 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8">
-              <div>
+              <div className="col-span-1 md:col-span-2 bg-zinc-50 p-6 rounded-2xl border border-zinc-200">
                 <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Building2 className="w-4 h-4 mr-2 text-indigo-500" /> Superficie Vendible (m²)</label>
-                <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-bold" />
+                <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-black text-xl" />
               </div>
+              
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> Costo Duro Obra (USD/m²)</label>
                 <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
+
+              {/* NUEVA CAJA: VALOR TERRENO FIJO */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><MapPin className="w-4 h-4 mr-2 text-zinc-400" /> Valor Terreno (USD Fijo)</label>
+                <input type="number" value={valorTerrenoUSD} onChange={(e) => setValorTerrenoUSD(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+              </div>
+
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Margen Objetivo</label>
                 <input type="number" step="0.01" value={margenObjetivo} onChange={(e) => setMargenObjetivo(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Tierra</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Tierra (%)</label>
                 <input type="number" step="0.01" value={canjeTierra} onChange={(e) => setCanjeTierra(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Honorarios</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Honorarios (%)</label>
                 <input type="number" step="0.01" value={canjeHonorarios} onChange={(e) => setCanjeHonorarios(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
               <div>
@@ -200,14 +203,13 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
               </div>
               
               <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
-                <label className="block text-[11px] font-bold uppercase tracking-widest text-indigo-700 mb-3 flex items-center"><SlidersHorizontal className="w-4 h-4 mr-2" /> Pricing Premium/Discount (%)</label>
+                <label className="block text-[11px] font-bold uppercase tracking-widest text-indigo-700 mb-3 flex items-center"><SlidersHorizontal className="w-4 h-4 mr-2" /> Pricing Premium/Discount</label>
                 <input type="number" step="0.01" value={pctAjuste} onChange={(e) => setPctAjuste(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-indigo-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-bold text-indigo-700" />
-                <p className="text-[10px] text-indigo-400 mt-2 font-medium">Ej: 0.05 para +5% premium, -0.02 para 2% discount.</p>
+                <p className="text-[10px] text-indigo-400 mt-2 font-medium">Ej: 0.05 para +5% premium.</p>
               </div>
             </div>
           </div>
 
-          {/* PANEL DE RESULTADOS Y GUARDADO */}
           <div className="lg:col-span-4 bg-zinc-950 p-8 rounded-3xl shadow-2xl text-white flex flex-col justify-between relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -225,13 +227,19 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
                   <div className="bg-zinc-900 p-5 rounded-2xl font-mono text-[13px] text-zinc-400 border border-zinc-800 shadow-inner">
                     <div className="flex justify-between text-white font-bold mb-2"><span>CONSTRUCCION</span><span>${Math.round(resultados.ticket.construccion).toLocaleString()}</span></div>
+                    {/* MOSTRAMOS EL TERRENO FIJO SI ES MAYOR A 0 */}
+                    {resultados.ticket.terrenoFijo > 0 && (
+                      <div className="flex justify-between pl-3 text-emerald-400 font-semibold"><span>Terreno (Pago Fijo)</span><span>${Math.round(resultados.ticket.terrenoFijo).toLocaleString()}</span></div>
+                    )}
                     <div className="flex justify-between pl-3"><span>Imprevistos</span><span>{Math.round(resultados.ticket.imprevistos).toLocaleString()}</span></div>
                     <div className="flex justify-between pl-3"><span>IVA</span><span>{Math.round(resultados.ticket.iva).toLocaleString()}</span></div>
                     <div className="flex justify-between pl-3"><span>Administración</span><span>{Math.round(resultados.ticket.administracion).toLocaleString()}</span></div>
                     <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2"><span>Subtotal</span><span>${Math.round(resultados.ticket.subtotal1).toLocaleString()}</span></div>
+                    
                     <div className="flex justify-between pl-3"><span>IIBB y TEM</span><span>{Math.round(resultados.ticket.iibbYTem).toLocaleString()}</span></div>
                     <div className="flex justify-between pl-3"><span>Comercializ.</span><span>{Math.round(resultados.ticket.comercializacion).toLocaleString()}</span></div>
                     <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2"><span>Subtotal</span><span>${Math.round(resultados.ticket.subtotal2).toLocaleString()}</span></div>
+                    
                     <div className="flex justify-between pl-3"><span>Terreno Canje</span><span>{Math.round(resultados.ticket.terrenoCanje).toLocaleString()}</span></div>
                     <div className="flex justify-between pl-3"><span>Honorarios Canje</span><span>{Math.round(resultados.ticket.honorariosCanje).toLocaleString()}</span></div>
                     <div className="flex justify-between text-emerald-400 font-bold bg-zinc-950 -mx-5 p-5 mt-5 border-t border-emerald-500/20 rounded-b-2xl"><span>TOTAL COSTO</span><span>${Math.round(resultados.ticket.totalCostoVivienda).toLocaleString()}</span></div>

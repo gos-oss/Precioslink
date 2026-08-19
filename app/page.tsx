@@ -36,6 +36,7 @@ export default function Home() {
           
           return {
             ...h,
+            // Redondeamos el número para que el Tooltip del gráfico no muestre decimales
             resultado_precio_promedio_usd: Math.round(Number(h.resultado_precio_promedio_usd)),
             fecha: dateObj.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' }),
             nombreProyecto: h.proyectos?.nombre || 'Desconocido'
@@ -93,9 +94,16 @@ export default function Home() {
               <p className="text-zinc-400 mt-1 font-medium tracking-wide text-sm uppercase">Intelligence & Pricing Dashboard</p>
             </div>
           </div>
-          <Link href="/configuracion" className="relative z-10 mt-6 md:mt-0 flex items-center bg-white/5 hover:bg-white/10 text-zinc-200 px-6 py-3 rounded-xl border border-zinc-700 hover:border-zinc-500 transition-all font-medium text-sm backdrop-blur-md">
-            <Settings className="w-4 h-4 mr-2 text-zinc-400" /> Parámetros Globales
-          </Link>
+          
+          {/* NUEVA BOTONERA CON EL ACCESO AL REPORTE */}
+          <div className="relative z-10 mt-6 md:mt-0 flex flex-wrap items-center gap-3">
+            <Link href="/reporte" className="flex items-center bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl shadow-[0_0_20px_rgba(79,70,229,0.3)] hover:shadow-[0_0_25px_rgba(79,70,229,0.5)] transition-all font-bold text-sm active:scale-95">
+              <BarChart3 className="w-4 h-4 mr-2" /> Generar Reporte
+            </Link>
+            <Link href="/configuracion" className="flex items-center bg-white/5 hover:bg-white/10 text-zinc-200 px-6 py-3 rounded-xl border border-zinc-700 hover:border-zinc-500 transition-all font-medium text-sm backdrop-blur-md active:scale-95">
+              <Settings className="w-4 h-4 mr-2 text-zinc-400" /> Parámetros
+            </Link>
+          </div>
         </div>
 
         {/* KPIs SUPERIORES */}

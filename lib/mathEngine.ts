@@ -1,6 +1,7 @@
 export interface PricingInputs {
   superficieVendible: number;
   costoDuroM2: number;
+  valorTerrenoUSD: number; // NUEVO: Valor de compra de la tierra en efectivo
   canjeTierraPct: number;
   canjeHonorariosPct: number;
   tasaIIBB: number;
@@ -11,7 +12,7 @@ export interface PricingInputs {
   pctIVA: number;
   pctAdmin: number;
   pctImprevistos: number;
-  pctAjuste: number; // NUEVO: Ajuste comercial por atributos
+  pctAjuste: number; 
 }
 
 export function calcularPrecioSugerido(inputs: PricingInputs) {
@@ -22,9 +23,12 @@ export function calcularPrecioSugerido(inputs: PricingInputs) {
   const imprevistos = construccion * inputs.pctImprevistos; 
   const iva = construccion * inputs.pctIVA;                 
   const administracion = construccion * inputs.pctAdmin;    
-  const terrenoFijo = 0; 
+  
+  // AHORA EL TERRENO FIJO TOMA EL VALOR DEL INPUT
+  const terrenoFijo = inputs.valorTerrenoUSD || 0; 
   const honorarioFijo = 0;
   
+  // El subtotal 1 ahora incluye el valor del terreno que se pagó en efectivo
   const subtotal1 = construccion + imprevistos + iva + administracion + terrenoFijo + honorarioFijo;
 
   const sumaDeducciones = inputs.tasaIIBB + inputs.tasaTEM + inputs.comisionVenta + inputs.margenObjetivo;
@@ -45,9 +49,8 @@ export function calcularPrecioSugerido(inputs: PricingInputs) {
 
   const totalCostoVivienda = subtotal2 + terrenoCanje + honorariosCanje;
 
-  // CÁLCULO DEL PRECIO FINAL CON AJUSTE COMERCIAL
   const precioBaseUSD = ventasTotalesNecesarias / Math.max(metrosLibres, 1);
-  const precioSugeridoUSD = precioBaseUSD * (1 + inputs.pctAjuste); // Se aplica el % de atributos
+  const precioSugeridoUSD = precioBaseUSD * (1 + inputs.pctAjuste); 
   const precioSugeridoARS = precioSugeridoUSD * inputs.tipoCambio;
 
   return {

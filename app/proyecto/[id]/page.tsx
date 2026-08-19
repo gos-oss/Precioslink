@@ -12,7 +12,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [editandoNombre, setEditandoNombre] = useState(false)
   const [nuevoNombre, setNuevoNombre] = useState('')
   
-  // VARIABLES DEL PROYECTO
+  // VARIABLES (Con valores por defecto que luego se sobreescriben con tu historial)
   const [superficieVendible, setSuperficieVendible] = useState(5000)
   const [costoDuroM2, setCostoDuroM2] = useState(1200)
   const [margenObjetivo, setMargenObjetivo] = useState(0.20)
@@ -24,23 +24,36 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [resultados, setResultados] = useState<any>(null)
   const [guardando, setGuardando] = useState(false)
 
+  // Cargar Proyecto, Configuración y ÚLTIMO HISTORIAL
   useEffect(() => {
     async function fetchData() {
-      const [resProyecto, resConfig] = await Promise.all([
+      const [resProyecto, resConfig, resHistorial] = await Promise.all([
         supabase.from('proyectos').select('*').eq('id', params.id).single(),
-        supabase.from('configuracion_global').select('*').eq('id', 1).single()
+        supabase.from('configuracion_global').select('*').eq('id', 1).single(),
+        supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('created_at', { ascending: false }).limit(1)
       ])
+      
       if (resProyecto.data) {
         setProyecto(resProyecto.data)
         if (resProyecto.data.superficie_vendible_m2) setSuperficieVendible(resProyecto.data.superficie_vendible_m2)
         if (resProyecto.data.gastos_admin != null) setPctAdmin(resProyecto.data.gastos_admin)
         if (resProyecto.data.imprevistos != null) setPctImprevistos(resProyecto.data.imprevistos)
       }
+      
       if (resConfig.data) setConfigGlobal(resConfig.data)
+
+      // Si ya habías guardado un escenario antes, rellenamos las cajas con esos datos
+      if (resHistorial.data && resHistorial.data.length > 0) {
+        const ultimoEscenario = resHistorial.data[0]
+        if (ultimoEscenario.costo_duro_m2) setCostoDuroM2(ultimoEscenario.costo_duro_m2)
+        if (ultimoEscenario.canje_tierra_porcentaje != null) setCanjeTierra(ultimoEscenario.canje_tierra_porcentaje)
+        if (ultimoEscenario.margen_objetivo != null) setMargenObjetivo(ultimoEscenario.margen_objetivo)
+      }
     }
     fetchData()
   }, [params.id])
 
+  // Recalcular en tiempo real
   useEffect(() => {
     if (proyecto && configGlobal) {
       try {
@@ -48,9 +61,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           superficieVendible, costoDuroM2, canjeTierraPct: canjeTierra, canjeHonorariosPct: canjeHonorarios,
           margenObjetivo, tasaIIBB: configGlobal.tasa_iibb, tasaTEM: configGlobal.tasa_tem,
           comisionVenta: configGlobal.comision_venta, tipoCambio: configGlobal.tipo_cambio,
-          pctIVA: configGlobal.tasa_iva,
-          pctAdmin: pctAdmin,             // Ahora es del proyecto
-          pctImprevistos: pctImprevistos  // Ahora es del proyecto
+          pctIVA: configGlobal.tasa_iva, pctAdmin: pctAdmin, pctImprevistos: pctImprevistos
         })
         setResultados(res)
       } catch (error) { console.error(error) }
@@ -60,11 +71,21 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   async function guardarHistorial() {
     if (!resultados || !proyecto || !configGlobal) return
     setGuardando(true)
+
+    // 1. Guardar los parámetros fijos en el Proyecto Original
+    await supabase.from('proyectos').update({
+      superficie_vendible_m2: superficieVendible,
+      gastos_admin: pctAdmin,
+      imprevistos: pctImprevistos
+    }).eq('id', proyecto.id)
+
+    // 2. Guardar el nuevo escenario en el Historial
     const { error } = await supabase.from('historial_versiones_proyecto').insert({
       id_proyecto: proyecto.id, tipo_cambio: configGlobal.tipo_cambio, costo_duro_m2: costoDuroM2,
       canje_tierra_porcentaje: canjeTierra, margen_objetivo: margenObjetivo, resultado_metros_libres: resultados.metrosLibres,
       resultado_costo_integral_total_usd: resultados.ticket.totalCostoVivienda, resultado_precio_promedio_usd: resultados.precioSugeridoUSD
     })
+    
     setGuardando(false)
     if (error) alert('Error: ' + error.message)
     else alert('¡Escenario guardado exitosamente!')
@@ -132,7 +153,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8">
               
-              {/* Bloque Superficie (Ocupa 2 columnas) */}
               <div className="col-span-1 md:col-span-2 bg-[#F4F4F5] p-6 rounded-2xl border border-zinc-200">
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center">
                   <Building2 className="w-4 h-4 mr-2 text-indigo-500" /> Superficie Vendible (m²)
@@ -140,7 +160,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                 <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-black text-xl" />
               </div>
 
-              {/* Fila 2 */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> Costo Duro Obra (USD/m²)</label>
                 <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
@@ -150,7 +169,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                 <input type="number" step="0.01" value={margenObjetivo} onChange={(e) => setMargenObjetivo(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
 
-              {/* Fila 3 */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Tierra</label>
                 <input type="number" step="0.01" value={canjeTierra} onChange={(e) => setCanjeTierra(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
@@ -160,7 +178,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                 <input type="number" step="0.01" value={canjeHonorarios} onChange={(e) => setCanjeHonorarios(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
 
-              {/* Fila 4: NUEVAS VARIABLES */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Gastos Adm. (Obra)</label>
                 <input type="number" step="0.001" value={pctAdmin} onChange={(e) => setPctAdmin(Number(e.target.value))} className="w-full rounded-xl border-0 bg-[#F4F4F5] px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
@@ -172,7 +189,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             </div>
           </div>
 
-          {/* PANEL DE RESULTADOS (Terminal Financiera) */}
+          {/* PANEL DE RESULTADOS */}
           <div className="lg:col-span-4 bg-zinc-950 p-8 rounded-3xl shadow-2xl text-white flex flex-col justify-between relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -181,7 +198,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
               
               {resultados && (
                 <div className="space-y-6">
-                  {/* Resumen de Precio */}
                   <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800 backdrop-blur-sm">
                     <p className="text-zinc-500 text-xs uppercase tracking-widest mb-2 font-bold">Precio Promedio</p>
                     <div className="flex items-baseline">
@@ -190,7 +206,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                     </div>
                   </div>
 
-                  {/* Ticket Detallado */}
                   <div className="bg-zinc-900 p-5 rounded-2xl font-mono text-sm text-zinc-400 border border-zinc-800">
                     <div className="flex justify-between text-white font-bold mb-2">
                       <span>CONSTRUCCION</span><span>${Math.round(resultados.ticket.construccion).toLocaleString()}</span>

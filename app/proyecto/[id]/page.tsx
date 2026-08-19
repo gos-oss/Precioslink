@@ -4,67 +4,81 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Coins, Edit2, Check, X } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X } from 'lucide-react'
 
 export default function ProyectoCalculadora({ params }: { params: { id: string } }) {
   const [proyecto, setProyecto] = useState<any>(null)
+  const [configGlobal, setConfigGlobal] = useState<any>(null) // NUEVO: Estado para la config
+  
   const [editandoNombre, setEditandoNombre] = useState(false)
   const [nuevoNombre, setNuevoNombre] = useState('')
   
+  // Variables que el usuario SÍ puede modificar por proyecto
   const [superficieVendible, setSuperficieVendible] = useState(5000)
   const [costoDuroM2, setCostoDuroM2] = useState(1200)
   const [margenObjetivo, setMargenObjetivo] = useState(0.20)
   const [canjeTierra, setCanjeTierra] = useState(0.13)
   const [canjeHonorarios, setCanjeHonorarios] = useState(0.10)
-  const [tipoCambio, setTipoCambio] = useState(1500)
 
   const [resultados, setResultados] = useState<any>(null)
   const [guardando, setGuardando] = useState(false)
 
+  // Cargar Proyecto y Configuración Global al mismo tiempo
   useEffect(() => {
-    async function fetchProyecto() {
-      const { data } = await supabase
-        .from('proyectos')
-        .select('*')
-        .eq('id', params.id)
-        .single()
+    async function fetchData() {
+      const [resProyecto, resConfig] = await Promise.all([
+        supabase.from('proyectos').select('*').eq('id', params.id).single(),
+        supabase.from('configuracion_global').select('*').eq('id', 1).single()
+      ])
       
-      if (data) {
-        setProyecto(data)
-        if (data.superficie_vendible_m2) {
-          setSuperficieVendible(data.superficie_vendible_m2)
+      if (resProyecto.data) {
+        setProyecto(resProyecto.data)
+        if (resProyecto.data.superficie_vendible_m2) {
+          setSuperficieVendible(resProyecto.data.superficie_vendible_m2)
         }
       }
+      if (resConfig.data) {
+        setConfigGlobal(resConfig.data)
+      }
     }
-    fetchProyecto()
+    fetchData()
   }, [params.id])
 
+  // Recalcular siempre que cambien los inputs o se cargue la config
   useEffect(() => {
-    if (proyecto) {
-      const res = calcularPrecioSugerido({
-        superficieVendible,
-        costoDuroM2,
-        canjeTierraPct: canjeTierra,
-        canjeHonorariosPct: canjeHonorarios,
-        tasaIIBB: 0.025,
-        tasaTEM: 0.0125,
-        comisionVenta: 0.035,
-        margenObjetivo,
-        tipoCambio
-      })
-      setResultados(res)
+    if (proyecto && configGlobal) {
+      try {
+        const res = calcularPrecioSugerido({
+          superficieVendible,
+          costoDuroM2,
+          canjeTierraPct: canjeTierra,
+          canjeHonorariosPct: canjeHonorarios,
+          margenObjetivo,
+          // Estos vienen del cerebro central:
+          tasaIIBB: configGlobal.tasa_iibb,
+          tasaTEM: configGlobal.tasa_tem,
+          comisionVenta: configGlobal.comision_venta,
+          tipoCambio: configGlobal.tipo_cambio,
+          pctImprevistos: configGlobal.imprevistos,
+          pctIVA: configGlobal.tasa_iva,
+          pctAdmin: configGlobal.gastos_admin
+        })
+        setResultados(res)
+      } catch (error) {
+        console.error("Error matemático:", error)
+      }
     }
-  }, [proyecto, superficieVendible, costoDuroM2, margenObjetivo, canjeTierra, canjeHonorarios, tipoCambio])
+  }, [proyecto, configGlobal, superficieVendible, costoDuroM2, margenObjetivo, canjeTierra, canjeHonorarios])
 
   async function guardarHistorial() {
-    if (!resultados || !proyecto) return
+    if (!resultados || !proyecto || !configGlobal) return
     setGuardando(true)
 
     const { error } = await supabase
       .from('historial_versiones_proyecto')
       .insert({
         id_proyecto: proyecto.id,
-        tipo_cambio: tipoCambio,
+        tipo_cambio: configGlobal.tipo_cambio, // Guardamos el tipo de cambio de ese momento
         costo_duro_m2: costoDuroM2,
         canje_tierra_porcentaje: canjeTierra,
         margen_objetivo: margenObjetivo,
@@ -74,11 +88,8 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       })
 
     setGuardando(false)
-    if (error) {
-      alert('Hubo un error al guardar: ' + error.message)
-    } else {
-      alert('¡Escenario guardado exitosamente en el historial!')
-    }
+    if (error) alert('Hubo un error al guardar: ' + error.message)
+    else alert('¡Escenario guardado exitosamente en el historial!')
   }
 
   async function guardarNombre() {
@@ -90,11 +101,11 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     }
   }
 
-  if (!proyecto) return (
+  if (!proyecto || !configGlobal) return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center">
       <div className="animate-pulse flex flex-col items-center">
         <div className="h-12 w-12 bg-blue-200 rounded-full mb-4"></div>
-        <p className="text-slate-500 font-medium">Cargando entorno de simulación...</p>
+        <p className="text-slate-500 font-medium">Sincronizando con base de datos central...</p>
       </div>
     </div>
   )
@@ -107,7 +118,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
         <div className="flex flex-col md:flex-row md:items-end justify-between mb-10 gap-4">
           <div>
             <Link href="/" className="inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors mb-3">
-              <ArrowLeft className="w-4 h-4 mr-1" /> Volver al portafolio
+              <ArrowLeft className="w-4 h-4 mr-1" /> Volver al dashboard
             </Link>
             
             {editandoNombre ? (
@@ -134,6 +145,10 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             
             <p className="text-slate-500 mt-2 text-lg">{proyecto.descripcion}</p>
           </div>
+          
+          <div className="bg-white px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 shadow-sm">
+            Tipo de Cambio Activo: <span className="text-blue-600 font-bold">${configGlobal.tipo_cambio}</span>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -143,7 +158,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             <div className="flex items-center justify-between mb-8 pb-4 border-b border-slate-100">
               <h2 className="text-xl font-bold text-slate-800 flex items-center">
                 <Calculator className="w-5 h-5 mr-2 text-slate-400" />
-                Variables de Negocio
+                Variables del Proyecto
               </h2>
             </div>
             
@@ -166,13 +181,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                   <DollarSign className="w-4 h-4 mr-1 text-slate-400" /> Costo Duro Obra (USD/m²)
                 </label>
                 <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center">
-                  <Coins className="w-4 h-4 mr-1 text-slate-400" /> Tipo de Cambio (ARS/USD)
-                </label>
-                <input type="number" value={tipoCambio} onChange={(e) => setTipoCambio(Number(e.target.value))} className="w-full rounded-lg border-0 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-blue-600 transition-all" />
               </div>
 
               <div>

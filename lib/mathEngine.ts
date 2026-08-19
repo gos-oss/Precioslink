@@ -8,30 +8,27 @@ export interface PricingInputs {
   comisionVenta: number;
   margenObjetivo: number;
   tipoCambio: number;
-  pctImprevistos: number; // NUEVO
-  pctIVA: number;         // NUEVO
-  pctAdmin: number;       // NUEVO
+  pctIVA: number;
+  pctAdmin: number;
+  pctImprevistos: number;
+  pctAjuste: number; // NUEVO: Ajuste comercial por atributos
 }
 
 export function calcularPrecioSugerido(inputs: PricingInputs) {
-  // 1. Metros Libres
   const porcentajeCanjes = inputs.canjeTierraPct + inputs.canjeHonorariosPct;
   const metrosLibres = inputs.superficieVendible * (1 - porcentajeCanjes);
 
-  // 2. Primer Bloque: Costos Directos
   const construccion = inputs.superficieVendible * inputs.costoDuroM2;
-  const imprevistos = construccion * inputs.pctImprevistos; // AHORA ES DINAMICO
-  const iva = construccion * inputs.pctIVA;                 // AHORA ES DINAMICO
-  const administracion = construccion * inputs.pctAdmin;    // AHORA ES DINAMICO
+  const imprevistos = construccion * inputs.pctImprevistos; 
+  const iva = construccion * inputs.pctIVA;                 
+  const administracion = construccion * inputs.pctAdmin;    
   const terrenoFijo = 0; 
   const honorarioFijo = 0;
   
   const subtotal1 = construccion + imprevistos + iva + administracion + terrenoFijo + honorarioFijo;
 
-  // 3. Grossing-up y Segundo Bloque: Gastos de Comercialización e Impuestos
   const sumaDeducciones = inputs.tasaIIBB + inputs.tasaTEM + inputs.comisionVenta + inputs.margenObjetivo;
   
-  // Protección matemática
   if (sumaDeducciones >= 1) {
     throw new Error("Las deducciones superan el 100%");
   }
@@ -43,14 +40,14 @@ export function calcularPrecioSugerido(inputs: PricingInputs) {
 
   const subtotal2 = subtotal1 + iibbYTem + comercializacion;
 
-  // 4. Tercer Bloque: Valorización del Canje
   const terrenoCanje = ventasTotalesNecesarias * inputs.canjeTierraPct;
   const honorariosCanje = ventasTotalesNecesarias * inputs.canjeHonorariosPct;
 
   const totalCostoVivienda = subtotal2 + terrenoCanje + honorariosCanje;
 
-  // 5. Precios Finales
-  const precioSugeridoUSD = ventasTotalesNecesarias / Math.max(metrosLibres, 1);
+  // CÁLCULO DEL PRECIO FINAL CON AJUSTE COMERCIAL
+  const precioBaseUSD = ventasTotalesNecesarias / Math.max(metrosLibres, 1);
+  const precioSugeridoUSD = precioBaseUSD * (1 + inputs.pctAjuste); // Se aplica el % de atributos
   const precioSugeridoARS = precioSugeridoUSD * inputs.tipoCambio;
 
   return {

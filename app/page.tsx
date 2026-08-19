@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import Link from 'next/link'
 import { Settings, Building2, DollarSign, Activity, BarChart3, Briefcase } from 'lucide-react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar } from 'recharts'
 
 // Paleta de degradados premium para los proyectos
 const gradients = [
@@ -36,7 +36,6 @@ export default function Home() {
           
           return {
             ...h,
-            // Redondeamos el número para que el Tooltip del gráfico no muestre decimales
             resultado_precio_promedio_usd: Math.round(Number(h.resultado_precio_promedio_usd)),
             fecha: dateObj.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' }),
             nombreProyecto: h.proyectos?.nombre || 'Desconocido'
@@ -95,7 +94,6 @@ export default function Home() {
             </div>
           </div>
           
-          {/* NUEVA BOTONERA CON EL ACCESO AL REPORTE */}
           <div className="relative z-10 mt-6 md:mt-0 flex flex-wrap items-center gap-3">
             <Link href="/reporte" className="flex items-center bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl shadow-[0_0_20px_rgba(79,70,229,0.3)] hover:shadow-[0_0_25px_rgba(79,70,229,0.5)] transition-all font-bold text-sm active:scale-95">
               <BarChart3 className="w-4 h-4 mr-2" /> Generar Reporte
@@ -131,42 +129,61 @@ export default function Home() {
           </div>
         </div>
 
-        {/* GRÁFICOS */}
+        {/* GRÁFICOS (MODO OSCURO PREMIUM) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
-            <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest">Ranking de Precios (USD/m²)</h2>
-            <div className="h-72 w-full">
+          
+          {/* Gráfico 1: Barras */}
+          <div className="bg-zinc-950 p-8 rounded-3xl shadow-xl border border-zinc-800 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none"></div>
+            <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Ranking de Precios (USD/m²)</h2>
+            <div className="h-72 w-full relative z-10">
               {resumenPrecios.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={resumenPrecios} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f4f4f5" />
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#27272a" />
                     <XAxis type="number" tick={{ fill: '#a1a1aa', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis dataKey="nombre" type="category" width={110} tick={{ fill: '#3f3f46', fontSize: 12, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                    <RechartsTooltip cursor={{ fill: '#f4f4f5' }} contentStyle={{ borderRadius: '12px', border: '1px solid #e4e4e7', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} itemStyle={{ color: '#09090b', fontWeight: 'bold' }} />
-                    <Bar dataKey="ultimoPrecioUSD" fill="#4f46e5" radius={[0, 4, 4, 0]} name="Precio USD/m²" barSize={24} />
+                    <YAxis dataKey="nombre" type="category" width={110} tick={{ fill: '#e4e4e7', fontSize: 12, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                    <RechartsTooltip 
+                      cursor={{ fill: '#18181b' }} 
+                      contentStyle={{ backgroundColor: '#09090b', borderRadius: '12px', border: '1px solid #27272a', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.5)' }} 
+                      itemStyle={{ color: '#e4e4e7', fontWeight: 'bold' }} 
+                    />
+                    <Bar dataKey="ultimoPrecioUSD" fill="#6366f1" radius={[0, 4, 4, 0]} name="Precio USD/m²" barSize={24} background={{ fill: '#18181b' }} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-full flex items-center justify-center text-zinc-400 text-sm italic">Sin datos de simulación.</div>
+                <div className="h-full flex items-center justify-center text-zinc-600 text-sm italic">Sin datos de simulación.</div>
               )}
             </div>
           </div>
 
-          <div className="bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
-            <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest">Evolución Histórica por Corte</h2>
-            <div className="h-72 w-full">
+          {/* Gráfico 2: Evolución de Área */}
+          <div className="bg-zinc-950 p-8 rounded-3xl shadow-xl border border-zinc-800 relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
+            <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Evolución Histórica por Corte</h2>
+            <div className="h-72 w-full relative z-10">
                {historial.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={historial} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f4f4f5" />
+                  <AreaChart data={historial} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorPrecio" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#27272a" />
                     <XAxis dataKey="fecha" tick={{ fill: '#a1a1aa', fontSize: 12 }} axisLine={false} tickLine={false} dy={10} />
                     <YAxis tick={{ fill: '#a1a1aa', fontSize: 12 }} domain={['auto', 'auto']} axisLine={false} tickLine={false} />
-                    <RechartsTooltip contentStyle={{ borderRadius: '12px', border: '1px solid #e4e4e7', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} labelStyle={{ color: '#71717a', marginBottom: '4px' }} />
-                    <Line type="monotone" dataKey="resultado_precio_promedio_usd" stroke="#059669" strokeWidth={3} dot={{ r: 4, fill: '#059669', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6 }} name="Precio USD/m²" />
-                  </LineChart>
+                    <RechartsTooltip 
+                      contentStyle={{ backgroundColor: '#09090b', borderRadius: '12px', border: '1px solid #27272a', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.5)' }} 
+                      labelStyle={{ color: '#a1a1aa', marginBottom: '4px' }} 
+                      itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
+                    />
+                    <Area type="monotone" dataKey="resultado_precio_promedio_usd" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorPrecio)" activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }} name="Precio USD/m²" />
+                  </AreaChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-full flex items-center justify-center text-zinc-400 text-sm italic">Guarda escenarios de corte para ver tendencia.</div>
+                <div className="h-full flex items-center justify-center text-zinc-600 text-sm italic">Guarda escenarios de corte para ver tendencia.</div>
               )}
             </div>
           </div>
@@ -180,7 +197,6 @@ export default function Home() {
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {proyectos.map((proyecto, index) => {
               const resumen = resumenPrecios.find(r => r.id === proyecto.id)
-              // Seleccionamos un color de la paleta basado en su posición
               const gradientClass = gradients[index % gradients.length]
               
               return (

@@ -45,12 +45,15 @@ export default function Home() {
 
         if (dataProyectos) {
           const resumen = dataProyectos.map(p => {
-            const historialProyecto = dataHistorial.filter(h => h.id_proyecto === p.id)
+            // Usamos el historial ya formateado para extraer la fecha limpia fácilmente
+            const historialProyecto = historialFormateado.filter(h => h.id_proyecto === p.id)
             const ultimoRegistro = historialProyecto.length > 0 ? historialProyecto[historialProyecto.length - 1] : null
             return {
               nombre: p.nombre,
               id: p.id,
               ultimoPrecioUSD: ultimoRegistro ? Math.round(Number(ultimoRegistro.resultado_precio_promedio_usd)) : 0,
+              // NUEVO: Agregamos la última fecha al resumen
+              ultimaFecha: ultimoRegistro ? ultimoRegistro.fecha : '-'
             }
           }).filter(r => r.ultimoPrecioUSD > 0)
           
@@ -129,38 +132,65 @@ export default function Home() {
           </div>
         </div>
 
-        {/* GRÁFICOS (MODO OSCURO PREMIUM) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* PANELES CENTRALES (Ahora son 3 columnas) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Gráfico 1: Barras */}
+          {/* Columna 1: Gráfico de Barras */}
           <div className="bg-zinc-950 p-8 rounded-3xl shadow-xl border border-zinc-800 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none"></div>
-            <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Ranking de Precios (USD/m²)</h2>
+            <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Ranking (USD/m²)</h2>
             <div className="h-72 w-full relative z-10">
               {resumenPrecios.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={resumenPrecios} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#27272a" />
                     <XAxis type="number" tick={{ fill: '#a1a1aa', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis dataKey="nombre" type="category" width={110} tick={{ fill: '#e4e4e7', fontSize: 12, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                    <RechartsTooltip 
-                      cursor={{ fill: '#18181b' }} 
-                      contentStyle={{ backgroundColor: '#09090b', borderRadius: '12px', border: '1px solid #27272a', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.5)' }} 
-                      itemStyle={{ color: '#e4e4e7', fontWeight: 'bold' }} 
-                    />
+                    <YAxis dataKey="nombre" type="category" width={90} tick={{ fill: '#e4e4e7', fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                    <RechartsTooltip cursor={{ fill: '#18181b' }} contentStyle={{ backgroundColor: '#09090b', borderRadius: '12px', border: '1px solid #27272a', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.5)' }} itemStyle={{ color: '#e4e4e7', fontWeight: 'bold' }} />
                     <Bar dataKey="ultimoPrecioUSD" fill="#6366f1" radius={[0, 4, 4, 0]} name="Precio USD/m²" barSize={24} background={{ fill: '#18181b' }} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-full flex items-center justify-center text-zinc-600 text-sm italic">Sin datos de simulación.</div>
+                <div className="h-full flex items-center justify-center text-zinc-600 text-sm italic">Sin datos.</div>
               )}
             </div>
           </div>
 
-          {/* Gráfico 2: Evolución de Área */}
+          {/* Columna 2: NUEVA TABLA CENTRAL */}
+          <div className="bg-zinc-950 p-8 rounded-3xl shadow-xl border border-zinc-800 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/5 rounded-full blur-3xl pointer-events-none"></div>
+            <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Precios Actuales</h2>
+            
+            {/* Contenedor con scroll para la tabla */}
+            <div className="h-72 w-full relative z-10 overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin', scrollbarColor: '#3f3f46 transparent' }}>
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 bg-zinc-950 z-20">
+                  <tr className="border-b border-zinc-800">
+                    <th className="pb-3 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Proyecto</th>
+                    <th className="pb-3 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-center">Fecha</th>
+                    <th className="pb-3 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Precio</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {resumenPrecios.map((item, i) => (
+                    <tr key={i} className="border-b border-zinc-800/50 hover:bg-zinc-900/50 transition-colors">
+                      <td className="py-3 text-xs font-bold text-zinc-200">{item.nombre}</td>
+                      <td className="py-3 text-xs font-medium text-zinc-400 text-center">{item.ultimaFecha}</td>
+                      <td className="py-3 text-xs font-black text-emerald-400 text-right">${item.ultimoPrecioUSD.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {resumenPrecios.length === 0 && (
+                <div className="h-full flex items-center justify-center text-zinc-600 text-sm italic mt-10">Sin datos de simulación.</div>
+              )}
+            </div>
+          </div>
+
+          {/* Columna 3: Gráfico de Evolución de Área */}
           <div className="bg-zinc-950 p-8 rounded-3xl shadow-xl border border-zinc-800 relative overflow-hidden">
             <div className="absolute top-0 left-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
-            <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Evolución Histórica por Corte</h2>
+            <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Evolución Histórica</h2>
             <div className="h-72 w-full relative z-10">
                {historial.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
@@ -174,16 +204,12 @@ export default function Home() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#27272a" />
                     <XAxis dataKey="fecha" tick={{ fill: '#a1a1aa', fontSize: 12 }} axisLine={false} tickLine={false} dy={10} />
                     <YAxis tick={{ fill: '#a1a1aa', fontSize: 12 }} domain={['auto', 'auto']} axisLine={false} tickLine={false} />
-                    <RechartsTooltip 
-                      contentStyle={{ backgroundColor: '#09090b', borderRadius: '12px', border: '1px solid #27272a', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.5)' }} 
-                      labelStyle={{ color: '#a1a1aa', marginBottom: '4px' }} 
-                      itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
-                    />
+                    <RechartsTooltip contentStyle={{ backgroundColor: '#09090b', borderRadius: '12px', border: '1px solid #27272a', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.5)' }} labelStyle={{ color: '#a1a1aa', marginBottom: '4px' }} itemStyle={{ color: '#10b981', fontWeight: 'bold' }} />
                     <Area type="monotone" dataKey="resultado_precio_promedio_usd" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorPrecio)" activeDot={{ r: 6, strokeWidth: 0, fill: '#10b981' }} name="Precio USD/m²" />
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-full flex items-center justify-center text-zinc-600 text-sm italic">Guarda escenarios de corte para ver tendencia.</div>
+                <div className="h-full flex items-center justify-center text-zinc-600 text-sm italic">Guarda escenarios para ver tendencia.</div>
               )}
             </div>
           </div>

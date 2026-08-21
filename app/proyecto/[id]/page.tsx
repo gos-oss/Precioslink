@@ -19,7 +19,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   
   const [superficieVendible, setSuperficieVendible] = useState(5000)
   const [costoDuroM2, setCostoDuroM2] = useState(1200)
-  const [valorTerrenoUSD, setValorTerrenoUSD] = useState(0) // NUEVO ESTADO
+  const [valorTerrenoUSD, setValorTerrenoUSD] = useState(0)
   const [margenObjetivo, setMargenObjetivo] = useState(0.20)
   const [canjeTierra, setCanjeTierra] = useState(0.13)
   const [canjeHonorarios, setCanjeHonorarios] = useState(0.10)
@@ -86,20 +86,50 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     if (!resultados || !proyecto || !configGlobal) return
     setGuardando(true)
 
+    // 1. Actualizar los parámetros fijos en la tabla "proyectos"
     await supabase.from('proyectos').update({ 
       superficie_vendible_m2: superficieVendible, gastos_admin: pctAdmin, imprevistos: pctImprevistos, pct_ajuste: pctAjuste, valor_terreno_usd: valorTerrenoUSD 
     }).eq('id', proyecto.id)
 
-    const { error } = await supabase.from('historial_versiones_proyecto').insert({
-      id_proyecto: proyecto.id, tipo_cambio: configGlobal.tipo_cambio, costo_duro_m2: costoDuroM2, valor_terreno_usd: valorTerrenoUSD,
+    // 2. LÓGICA INTELIGENTE: Verificamos si ya existe un escenario guardado para ESTA fecha en ESTE proyecto
+    const { data: registroExistente } = await supabase
+      .from('historial_versiones_proyecto')
+      .select('id')
+      .eq('id_proyecto', proyecto.id)
+      .eq('fecha_referencia', fechaReferencia)
+      .maybeSingle()
+
+    const datosAguardar = {
+      tipo_cambio: configGlobal.tipo_cambio, costo_duro_m2: costoDuroM2, valor_terreno_usd: valorTerrenoUSD,
       canje_tierra_porcentaje: canjeTierra, margen_objetivo: margenObjetivo, resultado_metros_libres: resultados.metrosLibres,
       resultado_costo_integral_total_usd: resultados.ticket.totalCostoVivienda, resultado_precio_promedio_usd: resultados.precioSugeridoUSD,
-      fecha_referencia: fechaReferencia, pct_ajuste: pctAjuste
-    })
+      pct_ajuste: pctAjuste
+    }
+
+    let errorProceso = null
+
+    if (registroExistente) {
+      // SI EXISTE: Actualizamos la fila que ya estaba guardada en esa fecha
+      const { error } = await supabase
+        .from('historial_versiones_proyecto')
+        .update(datosAguardar)
+        .eq('id', registroExistente.id)
+      errorProceso = error
+    } else {
+      // SI NO EXISTE: Creamos una fila nueva
+      const { error } = await supabase
+        .from('historial_versiones_proyecto')
+        .insert({
+          ...datosAguardar,
+          id_proyecto: proyecto.id,
+          fecha_referencia: fechaReferencia
+        })
+      errorProceso = error
+    }
     
     setGuardando(false)
-    if (error) mostrarNotificacion('Error: ' + error.message, 'error')
-    else mostrarNotificacion('Escenario guardado exitosamente')
+    if (errorProceso) mostrarNotificacion('Error: ' + errorProceso.message, 'error')
+    else mostrarNotificacion('Corte mensual fijado y actualizado')
   }
 
   async function guardarNombre() {
@@ -175,7 +205,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                 <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
               </div>
 
-              {/* NUEVA CAJA: VALOR TERRENO FIJO */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><MapPin className="w-4 h-4 mr-2 text-zinc-400" /> Valor Terreno (USD Fijo)</label>
                 <input type="number" value={valorTerrenoUSD} onChange={(e) => setValorTerrenoUSD(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
@@ -227,7 +256,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
                   <div className="bg-zinc-900 p-5 rounded-2xl font-mono text-[13px] text-zinc-400 border border-zinc-800 shadow-inner">
                     <div className="flex justify-between text-white font-bold mb-2"><span>CONSTRUCCION</span><span>${Math.round(resultados.ticket.construccion).toLocaleString()}</span></div>
-                    {/* MOSTRAMOS EL TERRENO FIJO SI ES MAYOR A 0 */}
                     {resultados.ticket.terrenoFijo > 0 && (
                       <div className="flex justify-between pl-3 text-emerald-400 font-semibold"><span>Terreno (Pago Fijo)</span><span>${Math.round(resultados.ticket.terrenoFijo).toLocaleString()}</span></div>
                     )}

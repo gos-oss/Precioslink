@@ -1,7 +1,7 @@
 export interface PricingInputs {
   superficieVendible: number;
   costoDuroM2: number;
-  valorTerrenoUSD: number; // NUEVO: Valor de compra de la tierra en efectivo
+  valorTerrenoUSD: number; 
   canjeTierraPct: number;
   canjeHonorariosPct: number;
   tasaIIBB: number;
@@ -16,40 +16,50 @@ export interface PricingInputs {
 }
 
 export function calcularPrecioSugerido(inputs: PricingInputs) {
+  // 1. Calculamos los metros que realmente podemos vender (Cash)
   const porcentajeCanjes = inputs.canjeTierraPct + inputs.canjeHonorariosPct;
   const metrosLibres = inputs.superficieVendible * (1 - porcentajeCanjes);
 
+  // 2. Calculamos todos los Costos Duros y Fijos
   const construccion = inputs.superficieVendible * inputs.costoDuroM2;
   const imprevistos = construccion * inputs.pctImprevistos; 
   const iva = construccion * inputs.pctIVA;                 
   const administracion = construccion * inputs.pctAdmin;    
-  
-  // AHORA EL TERRENO FIJO TOMA EL VALOR DEL INPUT
   const terrenoFijo = inputs.valorTerrenoUSD || 0; 
   const honorarioFijo = 0;
   
-  // El subtotal 1 ahora incluye el valor del terreno que se pagó en efectivo
   const subtotal1 = construccion + imprevistos + iva + administracion + terrenoFijo + honorarioFijo;
 
+  // 3. Calculamos la facturación en efectivo necesaria para cubrir costos y márgenes
   const sumaDeducciones = inputs.tasaIIBB + inputs.tasaTEM + inputs.comisionVenta + inputs.margenObjetivo;
   
   if (sumaDeducciones >= 1) {
     throw new Error("Las deducciones superan el 100%");
   }
 
-  const ventasTotalesNecesarias = subtotal1 / (1 - sumaDeducciones);
+  // Esto es lo que necesitamos facturar (solo con los metros libres)
+  const ventasTotalesNecesariasCash = subtotal1 / (1 - sumaDeducciones);
 
-  const iibbYTem = ventasTotalesNecesarias * (inputs.tasaIIBB + inputs.tasaTEM);
-  const comercializacion = ventasTotalesNecesarias * inputs.comisionVenta;
+  const iibbYTem = ventasTotalesNecesariasCash * (inputs.tasaIIBB + inputs.tasaTEM);
+  const comercializacion = ventasTotalesNecesariasCash * inputs.comisionVenta;
 
   const subtotal2 = subtotal1 + iibbYTem + comercializacion;
 
-  const terrenoCanje = ventasTotalesNecesarias * inputs.canjeTierraPct;
-  const honorariosCanje = ventasTotalesNecesarias * inputs.canjeHonorariosPct;
+  // 4. EL PRECIO BASE POR METRO CUADRADO
+  // Se obtiene dividiendo el dinero necesario por los metros libres
+  const precioBaseUSD = ventasTotalesNecesariasCash / Math.max(metrosLibres, 1);
 
+  // 5. CÁLCULO DE CANJES (LA CORRECCIÓN)
+  // Ahora el canje se aplica sobre el VALOR TOTAL DEL PROYECTO (Precio m2 * Total de metros)
+  const valorTotalProyecto = precioBaseUSD * inputs.superficieVendible;
+  
+  const terrenoCanje = valorTotalProyecto * inputs.canjeTierraPct;
+  const honorariosCanje = valorTotalProyecto * inputs.canjeHonorariosPct;
+
+  // El Total del Costo ahora refleja la suma del cash invertido + el valor de mercado de los canjes
   const totalCostoVivienda = subtotal2 + terrenoCanje + honorariosCanje;
 
-  const precioBaseUSD = ventasTotalesNecesarias / Math.max(metrosLibres, 1);
+  // 6. PRECIO SUGERIDO FINAL (Aplicando el ajuste premium/discount)
   const precioSugeridoUSD = precioBaseUSD * (1 + inputs.pctAjuste); 
   const precioSugeridoARS = precioSugeridoUSD * inputs.tipoCambio;
 

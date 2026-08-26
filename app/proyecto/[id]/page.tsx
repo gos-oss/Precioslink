@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Wallet, TrendingUp, Clock, Tag, Box, LayoutGrid } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Wallet, TrendingUp, Clock, Tag, Box, LayoutGrid, Plus } from 'lucide-react'
 
 const getTodayDate = () => {
   const d = new Date()
@@ -34,7 +34,13 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [resultados, setResultados] = useState<any>(null)
   const [guardando, setGuardando] = useState(false)
 
+  // Variables de STOCK
+  const [unidades, setUnidades] = useState<any[]>([])
+  const [nuevaUnidadId, setNuevaUnidadId] = useState('')
+  const [nuevaUnidadM2, setNuevaUnidadM2] = useState(50)
+
   // Variables de FINANCIADOR
+  const [unidadSeleccionada, setUnidadSeleccionada] = useState('')
   const [finPrecioVenta, setFinPrecioVenta] = useState(0)
   const [finAnticipoPct, setFinAnticipoPct] = useState(0.40)
   const [finCuotas, setFinCuotas] = useState(42)
@@ -44,10 +50,11 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
   useEffect(() => {
     async function fetchData() {
-      const [resProyecto, resConfig, resHistorial] = await Promise.all([
+      const [resProyecto, resConfig, resHistorial, resUnidades] = await Promise.all([
         supabase.from('proyectos').select('*').eq('id', params.id).single(),
         supabase.from('configuracion_global').select('*').eq('id', 1).single(),
-        supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('id', { ascending: false }).limit(1)
+        supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('id', { ascending: false }).limit(1),
+        supabase.from('unidades').select('*').eq('id_proyecto', params.id).order('identificador', { ascending: true })
       ])
       
       if (resProyecto.data) {
@@ -68,6 +75,8 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
         if (ultimo.margen_objetivo != null) setMargenObjetivo(ultimo.margen_objetivo)
         if (ultimo.pct_ajuste != null) setPctAjuste(ultimo.pct_ajuste)
       }
+
+      if (resUnidades.data) setUnidades(resUnidades.data)
     }
     fetchData()
   }, [params.id])
@@ -82,8 +91,8 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           pctIVA: configGlobal.tasa_iva, pctAdmin, pctImprevistos, pctAjuste
         })
         setResultados(res)
-        // Auto-completar el precio de venta en el financiador si está en 0
-        if (finPrecioVenta === 0) {
+        // Auto-completar un precio genérico solo si no hay unidad seleccionada y el precio está en 0
+        if (finPrecioVenta === 0 && !unidadSeleccionada) {
           setFinPrecioVenta(Math.round(res.precioSugeridoUSD))
         }
       } catch (error) { console.error(error) }
@@ -137,6 +146,42 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     }
   }
 
+  // --- FUNCIONES DE STOCK ---
+  async function agregarUnidad() {
+    if (!nuevaUnidadId.trim()) return;
+    const { data, error } = await supabase.from('unidades').insert({
+      id_proyecto: proyecto.id,
+      identificador: nuevaUnidadId,
+      superficie_m2: nuevaUnidadM2,
+      estado: 'disponible'
+    }).select()
+
+    if (data && data.length > 0) {
+      setUnidades([...unidades, data[0]])
+      setNuevaUnidadId('')
+      setNuevaUnidadM2(50)
+      mostrarNotificacion('Unidad agregada al inventario')
+    } else {
+      mostrarNotificacion('Error al agregar unidad', 'error')
+    }
+  }
+
+  async function cambiarEstadoUnidad(id: string, nuevoEstado: string) {
+    const { error } = await supabase.from('unidades').update({ estado: nuevoEstado }).eq('id', id);
+    if (!error) {
+      setUnidades(unidades.map(u => u.id === id ? { ...u, estado: nuevoEstado } : u))
+      mostrarNotificacion('Estado actualizado')
+    }
+  }
+
+  // --- CÁLCULOS DEL FINANCIADOR ---
+  const finAnticipoUSD = finPrecioVenta * finAnticipoPct;
+  const finSaldo = finPrecioVenta - finAnticipoUSD;
+  const finCostoFinanciero = finSaldo * finTasa * finCuotas;
+  const finPrecioFinanciado = finPrecioVenta + finCostoFinanciero;
+  const finSaldoAumentado = finPrecioFinanciado - finAnticipoUSD;
+  const finCuotaBase = finCuotas > 0 ? (finSaldoAumentado / finCuotas) : 0;
+
   if (!proyecto || !configGlobal) return (
     <div className="min-h-screen bg-zinc-100 flex items-center justify-center">
       <div className="flex flex-col items-center space-y-4">
@@ -145,14 +190,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       </div>
     </div>
   )
-
-  // CÁLCULOS DEL FINANCIADOR
-  const finAnticipoUSD = finPrecioVenta * finAnticipoPct;
-  const finSaldo = finPrecioVenta - finAnticipoUSD;
-  const finCostoFinanciero = finSaldo * finTasa * finCuotas; // Interés directo sobre saldo
-  const finPrecioFinanciado = finPrecioVenta + finCostoFinanciero;
-  const finSaldoAumentado = finPrecioFinanciado - finAnticipoUSD;
-  const finCuotaBase = finCuotas > 0 ? (finSaldoAumentado / finCuotas) : 0;
 
   return (
     <main className="min-h-screen bg-zinc-100 p-6 md:p-10 font-sans text-zinc-900 selection:bg-indigo-100 relative">
@@ -190,24 +227,15 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         </div>
 
-        {/* NAVEGACIÓN POR PESTAÑAS (TABS) */}
-        <div className="flex space-x-2 border-b border-zinc-200/80 mb-8 pb-px">
-          <button 
-            onClick={() => setActiveTab('PRECIOS')}
-            className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all ${activeTab === 'PRECIOS' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}
-          >
+        {/* NAVEGACIÓN POR PESTAÑAS */}
+        <div className="flex space-x-2 border-b border-zinc-200/80 mb-8 pb-px overflow-x-auto">
+          <button onClick={() => setActiveTab('PRECIOS')} className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all whitespace-nowrap ${activeTab === 'PRECIOS' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}>
             <Tag className="w-4 h-4 mr-2" /> PRICING (COSTOS)
           </button>
-          <button 
-            onClick={() => setActiveTab('STOCK')}
-            className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all ${activeTab === 'STOCK' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}
-          >
+          <button onClick={() => setActiveTab('STOCK')} className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all whitespace-nowrap ${activeTab === 'STOCK' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}>
             <LayoutGrid className="w-4 h-4 mr-2" /> STOCK (UNIDADES)
           </button>
-          <button 
-            onClick={() => setActiveTab('FINANCIADOR')}
-            className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all ${activeTab === 'FINANCIADOR' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}
-          >
+          <button onClick={() => setActiveTab('FINANCIADOR')} className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all whitespace-nowrap ${activeTab === 'FINANCIADOR' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}>
             <Wallet className="w-4 h-4 mr-2" /> FINANCIADOR (VENTAS)
           </button>
         </div>
@@ -283,11 +311,11 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                         <div className="flex justify-between pl-3"><span>Imprevistos</span><span>{Math.round(resultados.ticket.imprevistos).toLocaleString()}</span></div>
                         <div className="flex justify-between pl-3"><span>IVA</span><span>{Math.round(resultados.ticket.iva).toLocaleString()}</span></div>
                         <div className="flex justify-between pl-3"><span>Administración</span><span>{Math.round(resultados.ticket.administracion).toLocaleString()}</span></div>
-                        <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2"><span>Subtotal 1 (Costos Directos)</span><span>${Math.round(resultados.ticket.subtotal1).toLocaleString()}</span></div>
+                        <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2"><span>Subtotal 1 (Costos)</span><span>${Math.round(resultados.ticket.subtotal1).toLocaleString()}</span></div>
                         
                         <div className="flex justify-between pl-3"><span>IIBB y TEM</span><span>{Math.round(resultados.ticket.iibbYTem).toLocaleString()}</span></div>
                         <div className="flex justify-between pl-3"><span>Comercializ.</span><span>{Math.round(resultados.ticket.comercializacion).toLocaleString()}</span></div>
-                        <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2"><span>Subtotal 2 (Flujo Caja)</span><span>${Math.round(resultados.ticket.subtotal2).toLocaleString()}</span></div>
+                        <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2"><span>Subtotal 2 (Caja)</span><span>${Math.round(resultados.ticket.subtotal2).toLocaleString()}</span></div>
                         
                         <div className="mt-4 pt-3 border-t border-dashed border-zinc-700/50 text-[11px] text-zinc-500">
                           <p className="mb-2 font-bold text-zinc-400">INFO: CANJES (A COSTO DE OBRA)</p>
@@ -319,14 +347,68 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
         {/* CONTENIDO: PESTAÑA STOCK */}
         {activeTab === 'STOCK' && (
-          <div className="bg-white p-12 rounded-3xl shadow-sm border border-zinc-200/60 text-center flex flex-col items-center justify-center py-20">
-            <div className="bg-indigo-50 p-6 rounded-full mb-6">
-              <Box className="w-12 h-12 text-indigo-500" />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="lg:col-span-4 space-y-8">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
+                <h2 className="text-sm font-bold text-zinc-800 flex items-center uppercase tracking-widest mb-6">
+                  <Plus className="w-5 h-5 mr-3 text-indigo-500" /> Agregar Unidad
+                </h2>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Identificador (Ej: 4º A)</label>
+                    <input type="text" value={nuevaUnidadId} onChange={(e) => setNuevaUnidadId(e.target.value)} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-indigo-600 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Superficie (m²)</label>
+                    <input type="number" value={nuevaUnidadM2} onChange={(e) => setNuevaUnidadM2(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-indigo-600 font-bold" />
+                  </div>
+                  <button onClick={agregarUnidad} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-lg active:scale-95 mt-2">Guardar en Inventario</button>
+                </div>
+              </div>
             </div>
-            <h2 className="text-2xl font-black text-zinc-900 mb-2">Gestión de Inventario (Próximamente)</h2>
-            <p className="text-zinc-500 max-w-lg mb-8 font-medium">Aquí conectaremos la base de datos de unidades. Podrás cargar cada departamento o lote, marcar si está Disponible, Reservado o Vendido, y asignarle sus metros cuadrados específicos.</p>
-            <div className="bg-zinc-50 text-zinc-400 px-6 py-3 rounded-xl border border-zinc-200 font-bold text-sm tracking-widest uppercase">
-              Módulo en Desarrollo
+
+            <div className="lg:col-span-8 bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
+              <h2 className="text-sm font-bold text-zinc-800 flex items-center uppercase tracking-widest mb-6">
+                <LayoutGrid className="w-5 h-5 mr-3 text-indigo-500" /> Inventario de Unidades ({unidades.length})
+              </h2>
+              {unidades.length === 0 ? (
+                <div className="py-12 text-center border-2 border-dashed border-zinc-200 rounded-2xl">
+                  <p className="text-zinc-400 font-medium">No hay unidades cargadas en este proyecto.</p>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-2xl border border-zinc-200">
+                  <table className="w-full text-left bg-white">
+                    <thead className="bg-zinc-50">
+                      <tr>
+                        <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200">Unidad</th>
+                        <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200">Superficie</th>
+                        <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200">Valor Estimado</th>
+                        <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unidades.map((u) => (
+                        <tr key={u.id} className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
+                          <td className="py-4 px-4 font-black text-zinc-800">{u.identificador}</td>
+                          <td className="py-4 px-4 font-medium text-zinc-500">{u.superficie_m2} m²</td>
+                          <td className="py-4 px-4 font-bold text-emerald-600">${resultados ? Math.round(u.superficie_m2 * resultados.precioSugeridoUSD).toLocaleString() : 0}</td>
+                          <td className="py-4 px-4">
+                            <select 
+                              value={u.estado} 
+                              onChange={(e) => cambiarEstadoUnidad(u.id, e.target.value)}
+                              className={`text-xs font-bold px-3 py-1 rounded-lg outline-none cursor-pointer border-0 ring-1 ring-inset ${u.estado === 'disponible' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200' : u.estado === 'reservada' ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-rose-50 text-rose-700 ring-rose-200'}`}
+                            >
+                              <option value="disponible">Disponible</option>
+                              <option value="reservada">Reservada</option>
+                              <option value="vendida">Vendida</option>
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -342,10 +424,35 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8 mb-8">
-                <div className="col-span-1 md:col-span-2 bg-emerald-50/50 p-6 rounded-2xl border border-emerald-100">
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-emerald-700 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2" /> Valor de Venta (Contado USD)</label>
-                  <input type="number" value={finPrecioVenta} onChange={(e) => setFinPrecioVenta(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-emerald-900 shadow-sm ring-1 ring-inset ring-emerald-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-black text-2xl" />
-                  <p className="text-[10px] text-emerald-600 mt-2 font-medium">Por defecto trae el precio sugerido del proyecto, pero puedes editarlo según la unidad.</p>
+                
+                {/* SELECTOR DE UNIDAD */}
+                <div className="col-span-1 md:col-span-2 bg-emerald-50 p-6 rounded-2xl border border-emerald-100">
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-emerald-700 mb-3 flex items-center"><Box className="w-4 h-4 mr-2" /> 1. Elegir Unidad a Vender</label>
+                  <select 
+                    value={unidadSeleccionada}
+                    onChange={(e) => {
+                      const idUnidad = e.target.value;
+                      setUnidadSeleccionada(idUnidad);
+                      if (idUnidad && resultados) {
+                        const unidadElegida = unidades.find(u => u.id === idUnidad);
+                        if (unidadElegida) {
+                          setFinPrecioVenta(Math.round(unidadElegida.superficie_m2 * resultados.precioSugeridoUSD));
+                        }
+                      }
+                    }}
+                    className="w-full rounded-xl border-0 bg-white px-5 py-4 text-emerald-900 shadow-sm ring-1 ring-inset ring-emerald-200 focus:ring-2 focus:ring-emerald-600 transition-all font-bold text-lg cursor-pointer"
+                  >
+                    <option value="">-- Cotización Manual / Genérica --</option>
+                    {unidades.filter(u => u.estado === 'disponible').map(u => (
+                      <option key={u.id} value={u.id}>Unidad {u.identificador} ({u.superficie_m2} m²)</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="col-span-1 md:col-span-2">
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> 2. Valor de Venta (Contado USD)</label>
+                  <input type="number" value={finPrecioVenta} onChange={(e) => setFinPrecioVenta(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-black text-2xl" />
+                  <p className="text-[10px] text-zinc-400 mt-2 font-medium">Puedes sobrescribir este valor si deseas aplicar un descuento manual al cliente.</p>
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Anticipo Requerido</label>
@@ -360,48 +467,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                   <input type="number" value={finCuotas} onChange={(e) => setFinCuotas(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-semibold" />
                 </div>
               </div>
-
-              {/* TABLA DE CUOTAS */}
-              {finCuotas > 0 && finPrecioVenta > 0 && (
-                <div className="mt-8 border-t border-zinc-100 pt-8">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-4">Proyección de Cuotas Base (USD)</h3>
-                  <div className="overflow-hidden rounded-xl border border-zinc-200">
-                    <table className="w-full text-left border-collapse bg-white">
-                      <thead className="bg-zinc-50">
-                        <tr>
-                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200">Cuota</th>
-                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200 text-right">Saldo Inicial</th>
-                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200 text-right">Amortización</th>
-                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200 text-right text-emerald-600">Cuota Base</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
-                          <td className="py-3 px-4 text-xs font-bold text-zinc-900">0 (Anticipo)</td>
-                          <td className="py-3 px-4 text-xs text-zinc-500 text-right">-</td>
-                          <td className="py-3 px-4 text-xs text-zinc-500 text-right">-</td>
-                          <td className="py-3 px-4 text-sm font-black text-emerald-600 text-right">${Math.round(finPrecioVenta * finAnticipoPct).toLocaleString()}</td>
-                        </tr>
-                        {/* Mostramos solo las primeras 5 cuotas para no hacer la tabla eterna, y puntos suspensivos */}
-                        {[...Array(Math.min(finCuotas, 5))].map((_, i) => (
-                          <tr key={i} className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
-                            <td className="py-3 px-4 text-xs font-bold text-zinc-900">Cuota {i + 1}</td>
-                            <td className="py-3 px-4 text-xs text-zinc-500 text-right">${Math.round((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * (1 + (finTasa * finCuotas))).toLocaleString()}</td>
-                            <td className="py-3 px-4 text-xs text-zinc-500 text-right">Sistema Lineal</td>
-                            <td className="py-3 px-4 text-sm font-black text-emerald-600 text-right">${Math.round(((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * (1 + (finTasa * finCuotas))) / finCuotas).toLocaleString()}</td>
-                          </tr>
-                        ))}
-                        {finCuotas > 5 && (
-                          <tr>
-                            <td colSpan={4} className="py-4 text-center text-xs font-bold text-zinc-400 tracking-widest uppercase bg-zinc-50">... {finCuotas - 5} cuotas restantes ...</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-[10px] text-zinc-400 mt-3">* El valor de "Cuota Base" expresado en esta tabla no incluye las actualizaciones futuras por el índice de la Cámara Argentina de la Construcción (CAC). Al momento del pago, se le adicionará dicho coeficiente.</p>
-                </div>
-              )}
             </div>
 
             <div className="lg:col-span-4 space-y-8">

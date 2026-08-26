@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Wallet, TrendingUp, Clock, Tag, Box, LayoutGrid, Plus } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Wallet, TrendingUp, Clock, Tag, Box, LayoutGrid, Plus, Map } from 'lucide-react'
 
 const getTodayDate = () => {
   const d = new Date()
@@ -17,7 +17,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [editandoNombre, setEditandoNombre] = useState(false)
   const [nuevoNombre, setNuevoNombre] = useState('')
   
-  // TABS: 'PRECIOS' | 'STOCK' | 'FINANCIADOR'
+  // TABS: 'PRECIOS' | 'STOCK' | 'FINANCIADOR' | 'UBICACION'
   const [activeTab, setActiveTab] = useState('PRECIOS')
 
   // Variables de PRECIOS
@@ -45,9 +45,11 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [finAnticipoPct, setFinAnticipoPct] = useState(0.40)
   const [finCuotas, setFinCuotas] = useState(42)
   const [finTasa, setFinTasa] = useState(0.01)
-  
-  // ESTADO NUEVO: Para saber si el usuario escribió un descuento manual
   const [precioModificadoManual, setPrecioModificadoManual] = useState(false)
+
+  // Variables de UBICACIÓN
+  const [direccionProyecto, setDireccionProyecto] = useState('')
+  const [guardandoDireccion, setGuardandoDireccion] = useState(false)
 
   const [notificacion, setNotificacion] = useState({ mostrar: false, mensaje: '', tipo: 'exito' })
 
@@ -56,7 +58,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       const [resProyecto, resConfig, resHistorial, resUnidades] = await Promise.all([
         supabase.from('proyectos').select('*').eq('id', params.id).single(),
         supabase.from('configuracion_global').select('*').eq('id', 1).single(),
-        // LA SOLUCIÓN: Ordenamos estrictamente por fecha_referencia para traer la última simulación real
         supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('fecha_referencia', { ascending: false }).limit(1),
         supabase.from('unidades').select('*').eq('id_proyecto', params.id).order('identificador', { ascending: true })
       ])
@@ -68,6 +69,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
         if (resProyecto.data.gastos_admin != null) setPctAdmin(resProyecto.data.gastos_admin)
         if (resProyecto.data.imprevistos != null) setPctImprevistos(resProyecto.data.imprevistos)
         if (resProyecto.data.pct_ajuste != null) setPctAjuste(resProyecto.data.pct_ajuste)
+        if (resProyecto.data.direccion) setDireccionProyecto(resProyecto.data.direccion) // Carga la dirección guardada
       }
       if (resConfig.data) setConfigGlobal(resConfig.data)
 
@@ -86,7 +88,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     fetchData()
   }, [params.id])
 
-  // Actualización Dinámica del Financiador
   useEffect(() => {
     if (proyecto && configGlobal) {
       try {
@@ -98,7 +99,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
         })
         setResultados(res)
         
-        // Si no hemos escrito el precio a mano, que siga el valor real calculado del escenario
         if (!precioModificadoManual) {
           if (unidadSeleccionada) {
             const unidadElegida = unidades.find(u => u.id === unidadSeleccionada)
@@ -155,6 +155,18 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       setProyecto({ ...proyecto, nombre: nuevoNombre })
       setEditandoNombre(false)
       mostrarNotificacion('Nombre actualizado correctamente')
+    }
+  }
+
+  async function guardarDireccion() {
+    if (!proyecto) return
+    setGuardandoDireccion(true)
+    const { error } = await supabase.from('proyectos').update({ direccion: direccionProyecto }).eq('id', proyecto.id)
+    setGuardandoDireccion(false)
+    if (!error) {
+      mostrarNotificacion('Ubicación actualizada en el mapa')
+    } else {
+      mostrarNotificacion('Error al guardar ubicación', 'error')
     }
   }
 
@@ -249,6 +261,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </button>
           <button onClick={() => setActiveTab('FINANCIADOR')} className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all whitespace-nowrap ${activeTab === 'FINANCIADOR' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}>
             <Wallet className="w-4 h-4 mr-2" /> FINANCIADOR (VENTAS)
+          </button>
+          <button onClick={() => setActiveTab('UBICACION')} className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all whitespace-nowrap ${activeTab === 'UBICACION' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}>
+            <Map className="w-4 h-4 mr-2" /> UBICACIÓN
           </button>
         </div>
 
@@ -445,7 +460,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                     onChange={(e) => {
                       const idUnidad = e.target.value;
                       setUnidadSeleccionada(idUnidad);
-                      setPrecioModificadoManual(false); // Reseteamos la traba de edición manual
+                      setPrecioModificadoManual(false); 
                       if (idUnidad && resultados) {
                         const unidadElegida = unidades.find(u => u.id === idUnidad);
                         if (unidadElegida) {
@@ -471,7 +486,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                     value={finPrecioVenta} 
                     onChange={(e) => {
                       setFinPrecioVenta(Number(e.target.value));
-                      setPrecioModificadoManual(true); // Registra que escribiste a mano para no sobrescribirte
+                      setPrecioModificadoManual(true); 
                     }} 
                     className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-black text-2xl" 
                   />
@@ -560,6 +575,58 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* CONTENIDO: PESTAÑA UBICACIÓN (NUEVA) */}
+        {activeTab === 'UBICACION' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="lg:col-span-4 space-y-8">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
+                <h2 className="text-sm font-bold text-zinc-800 flex items-center uppercase tracking-widest mb-6">
+                  <MapPin className="w-5 h-5 mr-3 text-indigo-500" /> Dirección del Proyecto
+                </h2>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Dirección Completa (Ej: Av. Mate de Luna 2129, Tucumán)</label>
+                    <input 
+                      type="text" 
+                      value={direccionProyecto} 
+                      onChange={(e) => setDireccionProyecto(e.target.value)} 
+                      placeholder="Escribe la dirección aquí..."
+                      className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-indigo-600 font-bold" 
+                    />
+                  </div>
+                  <button 
+                    onClick={guardarDireccion} 
+                    disabled={guardandoDireccion}
+                    className={`w-full flex items-center justify-center font-bold py-3 px-4 rounded-xl transition-all shadow-lg active:scale-95 mt-2 ${guardandoDireccion ? 'bg-zinc-200 text-zinc-500' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}
+                  >
+                    <Map className="w-4 h-4 mr-2" /> {guardandoDireccion ? 'Actualizando Mapa...' : 'Guardar Ubicación'}
+                  </button>
+                  <p className="text-[10px] text-zinc-400 mt-2">* Al guardar la dirección, el mapa interactivo se actualizará automáticamente usando el motor de Google Maps.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-8 bg-white p-4 rounded-3xl shadow-sm border border-zinc-200/60 overflow-hidden h-[500px]">
+              {direccionProyecto ? (
+                <iframe 
+                  src={`https://maps.google.com/maps?q=${encodeURIComponent(direccionProyecto)}&z=15&output=embed`} 
+                  width="100%" 
+                  height="100%" 
+                  style={{ border: 0, borderRadius: '1rem' }} 
+                  allowFullScreen={true} 
+                  loading="lazy" 
+                  referrerPolicy="no-referrer-when-downgrade"
+                ></iframe>
+              ) : (
+                <div className="h-full w-full flex flex-col items-center justify-center bg-zinc-50 rounded-2xl border-2 border-dashed border-zinc-200">
+                  <Map className="w-12 h-12 text-zinc-300 mb-4" />
+                  <p className="text-zinc-500 font-medium text-sm">Ingresa una dirección en el panel izquierdo para cargar el mapa.</p>
+                </div>
+              )}
             </div>
           </div>
         )}

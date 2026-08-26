@@ -15,7 +15,19 @@ const gradients = [
   'from-stone-600 to-stone-900'
 ]
 
-const COLORS = ['#d97706', '#059669', '#2563eb', '#e11d48', '#7c3aed', '#0d9488', '#ea580c', '#0284c7'];
+// NUEVA PALETA DE COLORES DE ALTO CONTRASTE
+const COLORS = [
+  '#f59e0b', // Ámbar
+  '#10b981', // Esmeralda
+  '#3b82f6', // Azul
+  '#f43f5e', // Rosa fuerte
+  '#8b5cf6', // Violeta
+  '#14b8a6', // Turquesa
+  '#ec4899', // Magenta
+  '#06b6d4', // Cian
+  '#84cc16', // Lima
+  '#64748b'  // Gris Plata
+];
 
 export default function Home() {
   const [proyectos, setProyectos] = useState<any[]>([])
@@ -25,6 +37,7 @@ export default function Home() {
   
   const [proyectoSeleccionadoId, setProyectoSeleccionadoId] = useState<string>('todos')
   
+  // ESTADOS PARA EL MAPA INTERACTIVO
   const [mapaActivo, setMapaActivo] = useState<string>('San Miguel de Tucumán, Argentina')
   const [proyectoActivoMapa, setProyectoActivoMapa] = useState<string>('')
 
@@ -138,8 +151,6 @@ export default function Home() {
           <div className="absolute top-0 right-0 w-96 h-96 bg-slate-800/20 rounded-full blur-3xl pointer-events-none"></div>
           
           <div className="relative z-10 flex items-center gap-6 w-full md:w-auto">
-            
-            {/* AQUÍ CARGAMOS EL BANNER RECTANGULAR */}
             <div className="flex-shrink-0 shadow-2xl flex items-center justify-center h-20 md:h-24 overflow-hidden rounded-lg border border-slate-700/50 bg-black">
               <img 
                 src="/link-banner.png" 
@@ -152,7 +163,6 @@ export default function Home() {
               />
             </div>
             
-            {/* Título limpio, ya que el lema está en la imagen */}
             <div className="hidden lg:block border-l border-slate-700 pl-6">
               <h1 className="text-2xl font-serif font-bold text-white tracking-tight">
                 Comercialink Dashboard

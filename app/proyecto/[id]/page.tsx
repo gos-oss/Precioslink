@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Wallet, TrendingUp, Clock } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Wallet, TrendingUp, Clock, Tag, Box, LayoutGrid } from 'lucide-react'
 
 const getTodayDate = () => {
   const d = new Date()
@@ -17,6 +17,10 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [editandoNombre, setEditandoNombre] = useState(false)
   const [nuevoNombre, setNuevoNombre] = useState('')
   
+  // TABS: 'PRECIOS' | 'STOCK' | 'FINANCIADOR'
+  const [activeTab, setActiveTab] = useState('PRECIOS')
+
+  // Variables de PRECIOS
   const [superficieVendible, setSuperficieVendible] = useState(5000)
   const [costoDuroM2, setCostoDuroM2] = useState(1200)
   const [valorTerrenoUSD, setValorTerrenoUSD] = useState(0)
@@ -26,15 +30,16 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [pctAdmin, setPctAdmin] = useState(0.0589)
   const [pctImprevistos, setPctImprevistos] = useState(0.06)
   const [pctAjuste, setPctAjuste] = useState(0)
-  
-  // VARIABLES DEL SIMULADOR DE FINANCIACIÓN
-  const [finanzasAnticipo, setFinanzasAnticipo] = useState(0.40) 
-  const [finanzasCuotas, setFinanzasCuotas] = useState(42) 
-  const [finanzasTasaMensual, setFinanzasTasaMensual] = useState(0.01) 
-  
   const [fechaReferencia, setFechaReferencia] = useState(getTodayDate())
   const [resultados, setResultados] = useState<any>(null)
   const [guardando, setGuardando] = useState(false)
+
+  // Variables de FINANCIADOR
+  const [finPrecioVenta, setFinPrecioVenta] = useState(0)
+  const [finAnticipoPct, setFinAnticipoPct] = useState(0.40)
+  const [finCuotas, setFinCuotas] = useState(42)
+  const [finTasa, setFinTasa] = useState(0.01)
+
   const [notificacion, setNotificacion] = useState({ mostrar: false, mensaje: '', tipo: 'exito' })
 
   useEffect(() => {
@@ -77,6 +82,10 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           pctIVA: configGlobal.tasa_iva, pctAdmin, pctImprevistos, pctAjuste
         })
         setResultados(res)
+        // Auto-completar el precio de venta en el financiador si está en 0
+        if (finPrecioVenta === 0) {
+          setFinPrecioVenta(Math.round(res.precioSugeridoUSD))
+        }
       } catch (error) { console.error(error) }
     }
   }, [proyecto, configGlobal, superficieVendible, costoDuroM2, valorTerrenoUSD, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos, pctAjuste])
@@ -128,22 +137,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     }
   }
 
-  // --- CÁLCULOS DEL SIMULADOR DE FINANCIACIÓN ---
-  let calcFinanzas = null;
-  if (resultados) {
-    const precioContado = resultados.precioSugeridoUSD;
-    const anticipoUSD = precioContado * finanzasAnticipo;
-    const saldoAFinanciar = precioContado - anticipoUSD;
-    
-    // Costo Financiero (Interés directo sobre el saldo por la cantidad de meses)
-    const costoFinanciero = saldoAFinanciar * finanzasTasaMensual * finanzasCuotas;
-    const precioFinanciado = precioContado + costoFinanciero;
-    const saldoFinanciado = precioFinanciado - anticipoUSD;
-    const cuotaBaseMensual = saldoFinanciado / finanzasCuotas;
-    
-    calcFinanzas = { anticipoUSD, saldoAFinanciar, costoFinanciero, precioFinanciado, cuotaBaseMensual };
-  }
-
   if (!proyecto || !configGlobal) return (
     <div className="min-h-screen bg-zinc-100 flex items-center justify-center">
       <div className="flex flex-col items-center space-y-4">
@@ -152,6 +145,14 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       </div>
     </div>
   )
+
+  // CÁLCULOS DEL FINANCIADOR
+  const finAnticipoUSD = finPrecioVenta * finAnticipoPct;
+  const finSaldo = finPrecioVenta - finAnticipoUSD;
+  const finCostoFinanciero = finSaldo * finTasa * finCuotas; // Interés directo sobre saldo
+  const finPrecioFinanciado = finPrecioVenta + finCostoFinanciero;
+  const finSaldoAumentado = finPrecioFinanciado - finAnticipoUSD;
+  const finCuotaBase = finCuotas > 0 ? (finSaldoAumentado / finCuotas) : 0;
 
   return (
     <main className="min-h-screen bg-zinc-100 p-6 md:p-10 font-sans text-zinc-900 selection:bg-indigo-100 relative">
@@ -163,7 +164,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
       <div className="max-w-6xl mx-auto space-y-8">
         
-        {/* ENCABEZADO */}
+        {/* ENCABEZADO GLOBAL */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <Link href="/" className="inline-flex items-center text-sm font-bold text-indigo-600 hover:text-indigo-800 transition-colors mb-4 tracking-wide">
@@ -181,7 +182,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                 <button onClick={() => { setNuevoNombre(proyecto.nombre); setEditandoNombre(true); }} className="ml-4 text-zinc-300 hover:text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity"><Edit2 className="w-5 h-5" /></button>
               </h1>
             )}
-            <p className="text-zinc-500 mt-2 font-medium">{proyecto.descripcion}</p>
+            <p className="text-zinc-500 mt-2 font-medium">{proyecto.descripcion || "Panel Integral del Proyecto"}</p>
           </div>
           <div className="bg-white px-5 py-3 rounded-2xl border border-zinc-200/60 shadow-sm flex items-center">
             <span className="text-xs font-bold text-zinc-400 uppercase tracking-widest mr-3">T.C. Activo</span>
@@ -189,184 +190,250 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          
-          {/* COLUMNA IZQUIERDA: INPUTS */}
-          <div className="lg:col-span-8 space-y-8">
-            
-            {/* PANEL DE INPUTS DEL PROYECTO */}
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
+        {/* NAVEGACIÓN POR PESTAÑAS (TABS) */}
+        <div className="flex space-x-2 border-b border-zinc-200/80 mb-8 pb-px">
+          <button 
+            onClick={() => setActiveTab('PRECIOS')}
+            className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all ${activeTab === 'PRECIOS' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}
+          >
+            <Tag className="w-4 h-4 mr-2" /> PRICING (COSTOS)
+          </button>
+          <button 
+            onClick={() => setActiveTab('STOCK')}
+            className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all ${activeTab === 'STOCK' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}
+          >
+            <LayoutGrid className="w-4 h-4 mr-2" /> STOCK (UNIDADES)
+          </button>
+          <button 
+            onClick={() => setActiveTab('FINANCIADOR')}
+            className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all ${activeTab === 'FINANCIADOR' ? 'bg-white text-indigo-600 border-t border-l border-r border-zinc-200/80' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50'}`}
+          >
+            <Wallet className="w-4 h-4 mr-2" /> FINANCIADOR (VENTAS)
+          </button>
+        </div>
+
+        {/* CONTENIDO: PESTAÑA PRECIOS */}
+        {activeTab === 'PRECIOS' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="lg:col-span-8 space-y-8">
+              <div className="bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
+                <div className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-100">
+                  <h2 className="text-sm font-bold text-zinc-800 flex items-center uppercase tracking-widest">
+                    <Calculator className="w-5 h-5 mr-3 text-indigo-500" /> Configuración del Escenario
+                  </h2>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8">
+                  <div className="col-span-1 md:col-span-2 bg-zinc-50 p-6 rounded-2xl border border-zinc-200">
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Building2 className="w-4 h-4 mr-2 text-indigo-500" /> Superficie Vendible (m²)</label>
+                    <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-black text-xl" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> Costo Duro Obra (USD/m²)</label>
+                    <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><MapPin className="w-4 h-4 mr-2 text-zinc-400" /> Valor Terreno (USD Fijo)</label>
+                    <input type="number" value={valorTerrenoUSD} onChange={(e) => setValorTerrenoUSD(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Margen Objetivo</label>
+                    <input type="number" step="0.01" value={margenObjetivo} onChange={(e) => setMargenObjetivo(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Tierra (%)</label>
+                    <input type="number" step="0.01" value={canjeTierra} onChange={(e) => setCanjeTierra(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Honorarios (%)</label>
+                    <input type="number" step="0.01" value={canjeHonorarios} onChange={(e) => setCanjeHonorarios(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Gastos Adm. (Obra)</label>
+                    <input type="number" step="0.001" value={pctAdmin} onChange={(e) => setPctAdmin(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Imprevistos (Obra)</label>
+                    <input type="number" step="0.001" value={pctImprevistos} onChange={(e) => setPctImprevistos(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
+                  </div>
+                  <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-indigo-700 mb-3 flex items-center"><SlidersHorizontal className="w-4 h-4 mr-2" /> Pricing Premium/Discount</label>
+                    <input type="number" step="0.01" value={pctAjuste} onChange={(e) => setPctAjuste(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-indigo-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-bold text-indigo-700" />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-4 space-y-8">
+              <div className="bg-zinc-950 p-8 rounded-3xl shadow-2xl text-white flex flex-col justify-between relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                <div className="relative z-10">
+                  <h2 className="text-[11px] font-bold text-zinc-400 mb-6 tracking-widest uppercase">Precio Promedio de Contado (m²)</h2>
+                  {resultados && (
+                    <div className="space-y-4">
+                      <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800 backdrop-blur-sm">
+                        <div className="flex items-baseline">
+                          <span className="text-xl font-bold text-zinc-400 mr-2">USD</span>
+                          <p className="text-4xl font-black text-white tracking-tight">{Math.round(resultados.precioSugeridoUSD).toLocaleString()}</p>
+                        </div>
+                      </div>
+
+                      <div className="bg-zinc-900 p-5 rounded-2xl font-mono text-[13px] text-zinc-400 border border-zinc-800 shadow-inner">
+                        <div className="flex justify-between text-white font-bold mb-2"><span>CONSTRUCCION (100% m²)</span><span>${Math.round(resultados.ticket.construccion).toLocaleString()}</span></div>
+                        {resultados.ticket.terrenoFijo > 0 && <div className="flex justify-between pl-3 text-emerald-400 font-semibold"><span>Terreno (Pago Fijo)</span><span>${Math.round(resultados.ticket.terrenoFijo).toLocaleString()}</span></div>}
+                        <div className="flex justify-between pl-3"><span>Imprevistos</span><span>{Math.round(resultados.ticket.imprevistos).toLocaleString()}</span></div>
+                        <div className="flex justify-between pl-3"><span>IVA</span><span>{Math.round(resultados.ticket.iva).toLocaleString()}</span></div>
+                        <div className="flex justify-between pl-3"><span>Administración</span><span>{Math.round(resultados.ticket.administracion).toLocaleString()}</span></div>
+                        <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2"><span>Subtotal 1 (Costos Directos)</span><span>${Math.round(resultados.ticket.subtotal1).toLocaleString()}</span></div>
+                        
+                        <div className="flex justify-between pl-3"><span>IIBB y TEM</span><span>{Math.round(resultados.ticket.iibbYTem).toLocaleString()}</span></div>
+                        <div className="flex justify-between pl-3"><span>Comercializ.</span><span>{Math.round(resultados.ticket.comercializacion).toLocaleString()}</span></div>
+                        <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2"><span>Subtotal 2 (Flujo Caja)</span><span>${Math.round(resultados.ticket.subtotal2).toLocaleString()}</span></div>
+                        
+                        <div className="mt-4 pt-3 border-t border-dashed border-zinc-700/50 text-[11px] text-zinc-500">
+                          <p className="mb-2 font-bold text-zinc-400">INFO: CANJES (A COSTO DE OBRA)</p>
+                          <div className="flex justify-between"><span>Terreno (Ya incl.)</span><span>${Math.round(resultados.ticket.terrenoCanje).toLocaleString()}</span></div>
+                          <div className="flex justify-between"><span>Honorarios (Ya incl.)</span><span>${Math.round(resultados.ticket.honorariosCanje).toLocaleString()}</span></div>
+                        </div>
+
+                        <div className="flex justify-between text-emerald-400 font-bold bg-zinc-950 -mx-5 p-5 mt-4 border-t border-emerald-500/20 rounded-b-2xl">
+                          <span>TOTAL COSTO PROYECTO</span><span>${Math.round(resultados.ticket.totalCostoVivienda).toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-zinc-200/60">
+                <div className="mb-4">
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 flex items-center"><Calendar className="w-4 h-4 mr-2" /> Fecha del Corte</label>
+                  <input type="date" value={fechaReferencia} onChange={(e) => setFechaReferencia(e.target.value)} className="w-full bg-zinc-50 border border-zinc-200 text-zinc-900 rounded-xl px-4 py-3 font-semibold focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all" />
+                </div>
+                <button onClick={guardarHistorial} disabled={guardando} className={`w-full flex items-center justify-center font-bold py-4 px-6 rounded-xl transition-all duration-300 ${guardando ? 'bg-zinc-200 text-zinc-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-[0_0_20px_rgba(79,70,229,0.3)] hover:shadow-[0_0_25px_rgba(79,70,229,0.5)] active:scale-[0.98]'}`}>
+                  <Save className="w-5 h-5 mr-2" /> {guardando ? 'Guardando...' : 'Fijar Corte Mensual'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CONTENIDO: PESTAÑA STOCK */}
+        {activeTab === 'STOCK' && (
+          <div className="bg-white p-12 rounded-3xl shadow-sm border border-zinc-200/60 text-center flex flex-col items-center justify-center py-20">
+            <div className="bg-indigo-50 p-6 rounded-full mb-6">
+              <Box className="w-12 h-12 text-indigo-500" />
+            </div>
+            <h2 className="text-2xl font-black text-zinc-900 mb-2">Gestión de Inventario (Próximamente)</h2>
+            <p className="text-zinc-500 max-w-lg mb-8 font-medium">Aquí conectaremos la base de datos de unidades. Podrás cargar cada departamento o lote, marcar si está Disponible, Reservado o Vendido, y asignarle sus metros cuadrados específicos.</p>
+            <div className="bg-zinc-50 text-zinc-400 px-6 py-3 rounded-xl border border-zinc-200 font-bold text-sm tracking-widest uppercase">
+              Módulo en Desarrollo
+            </div>
+          </div>
+        )}
+
+        {/* CONTENIDO: PESTAÑA FINANCIADOR */}
+        {activeTab === 'FINANCIADOR' && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div className="lg:col-span-8 bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
               <div className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-100">
                 <h2 className="text-sm font-bold text-zinc-800 flex items-center uppercase tracking-widest">
-                  <Calculator className="w-5 h-5 mr-3 text-indigo-500" /> Configuración del Escenario
+                  <Calculator className="w-5 h-5 mr-3 text-emerald-500" /> Simulador de Venta a Cliente
                 </h2>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8">
-                <div className="col-span-1 md:col-span-2 bg-zinc-50 p-6 rounded-2xl border border-zinc-200">
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Building2 className="w-4 h-4 mr-2 text-indigo-500" /> Superficie Vendible (m²)</label>
-                  <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-black text-xl" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8 mb-8">
+                <div className="col-span-1 md:col-span-2 bg-emerald-50/50 p-6 rounded-2xl border border-emerald-100">
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-emerald-700 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2" /> Valor de Venta (Contado USD)</label>
+                  <input type="number" value={finPrecioVenta} onChange={(e) => setFinPrecioVenta(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-emerald-900 shadow-sm ring-1 ring-inset ring-emerald-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-black text-2xl" />
+                  <p className="text-[10px] text-emerald-600 mt-2 font-medium">Por defecto trae el precio sugerido del proyecto, pero puedes editarlo según la unidad.</p>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> Costo Duro Obra (USD/m²)</label>
-                  <input type="number" value={costoDuroM2} onChange={(e) => setCostoDuroM2(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><MapPin className="w-4 h-4 mr-2 text-zinc-400" /> Valor Terreno (USD Fijo)</label>
-                  <input type="number" value={valorTerrenoUSD} onChange={(e) => setValorTerrenoUSD(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Margen Objetivo</label>
-                  <input type="number" step="0.01" value={margenObjetivo} onChange={(e) => setMargenObjetivo(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Tierra (%)</label>
-                  <input type="number" step="0.01" value={canjeTierra} onChange={(e) => setCanjeTierra(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Canje Honorarios (%)</label>
-                  <input type="number" step="0.01" value={canjeHonorarios} onChange={(e) => setCanjeHonorarios(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Gastos Adm. (Obra)</label>
-                  <input type="number" step="0.001" value={pctAdmin} onChange={(e) => setPctAdmin(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Imprevistos (Obra)</label>
-                  <input type="number" step="0.001" value={pctImprevistos} onChange={(e) => setPctImprevistos(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-semibold" />
-                </div>
-                <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-indigo-700 mb-3 flex items-center"><SlidersHorizontal className="w-4 h-4 mr-2" /> Pricing Premium/Discount</label>
-                  <input type="number" step="0.01" value={pctAjuste} onChange={(e) => setPctAjuste(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-indigo-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-bold text-indigo-700" />
-                </div>
-              </div>
-            </div>
-
-            {/* NUEVO PANEL: SIMULADOR DE FINANCIACIÓN */}
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-zinc-200/60">
-              <div className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-100">
-                <h2 className="text-sm font-bold text-zinc-800 flex items-center uppercase tracking-widest">
-                  <Wallet className="w-5 h-5 mr-3 text-emerald-500" /> Simulador de Venta Financiada
-                </h2>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-zinc-400" /> Anticipo Requerido</label>
-                  <input type="number" step="0.01" value={finanzasAnticipo} onChange={(e) => setFinanzasAnticipo(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-semibold" />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Clock className="w-4 h-4 mr-2 text-zinc-400" /> Plazo (Meses)</label>
-                  <input type="number" value={finanzasCuotas} onChange={(e) => setFinanzasCuotas(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-semibold" />
+                  <input type="number" step="0.01" value={finAnticipoPct} onChange={(e) => setFinAnticipoPct(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-semibold" />
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><TrendingUp className="w-4 h-4 mr-2 text-zinc-400" /> Tasa de Interés Mensual</label>
-                  <input type="number" step="0.001" value={finanzasTasaMensual} onChange={(e) => setFinanzasTasaMensual(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-semibold" />
+                  <input type="number" step="0.001" value={finTasa} onChange={(e) => setFinTasa(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-semibold" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><Clock className="w-4 h-4 mr-2 text-zinc-400" /> Plazo Total (Meses)</label>
+                  <input type="number" value={finCuotas} onChange={(e) => setFinCuotas(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-semibold" />
                 </div>
               </div>
-            </div>
 
-          </div>
-
-          {/* COLUMNA DERECHA: RESULTADOS (TICKET) */}
-          <div className="lg:col-span-4 space-y-8">
-            
-            {/* TICKET 1: PROYECCIÓN FINANCIERA (CONTADO) */}
-            <div className="bg-zinc-950 p-8 rounded-3xl shadow-2xl text-white flex flex-col justify-between relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
-
-              <div className="relative z-10">
-                <h2 className="text-[11px] font-bold text-zinc-400 mb-6 tracking-widest uppercase">Precio Promedio de Contado (m²)</h2>
-                {resultados && (
-                  <div className="space-y-4">
-                    <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800 backdrop-blur-sm">
-                      <div className="flex items-baseline">
-                        <span className="text-xl font-bold text-zinc-400 mr-2">USD</span>
-                        <p className="text-4xl font-black text-white tracking-tight">{Math.round(resultados.precioSugeridoUSD).toLocaleString()}</p>
-                      </div>
-                    </div>
-
-                    <div className="bg-zinc-900 p-5 rounded-2xl font-mono text-[13px] text-zinc-400 border border-zinc-800 shadow-inner">
-                      <div className="flex justify-between text-white font-bold mb-2"><span>CONSTRUCCION (100% m²)</span><span>${Math.round(resultados.ticket.construccion).toLocaleString()}</span></div>
-                      {resultados.ticket.terrenoFijo > 0 && (
-                        <div className="flex justify-between pl-3 text-emerald-400 font-semibold"><span>Terreno (Pago Fijo)</span><span>${Math.round(resultados.ticket.terrenoFijo).toLocaleString()}</span></div>
-                      )}
-                      <div className="flex justify-between pl-3"><span>Imprevistos</span><span>{Math.round(resultados.ticket.imprevistos).toLocaleString()}</span></div>
-                      <div className="flex justify-between pl-3"><span>IVA</span><span>{Math.round(resultados.ticket.iva).toLocaleString()}</span></div>
-                      <div className="flex justify-between pl-3"><span>Administración</span><span>{Math.round(resultados.ticket.administracion).toLocaleString()}</span></div>
-                      <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2"><span>Subtotal 1 (Costos Directos)</span><span>${Math.round(resultados.ticket.subtotal1).toLocaleString()}</span></div>
-                      
-                      <div className="flex justify-between pl-3"><span>IIBB y TEM</span><span>{Math.round(resultados.ticket.iibbYTem).toLocaleString()}</span></div>
-                      <div className="flex justify-between pl-3"><span>Comercializ.</span><span>{Math.round(resultados.ticket.comercializacion).toLocaleString()}</span></div>
-                      <div className="flex justify-between text-white font-bold border-y border-zinc-700/50 py-2 my-2"><span>Subtotal 2 (Flujo Caja)</span><span>${Math.round(resultados.ticket.subtotal2).toLocaleString()}</span></div>
-                      
-                      <div className="mt-4 pt-3 border-t border-dashed border-zinc-700/50 text-[11px] text-zinc-500">
-                        <p className="mb-2 font-bold text-zinc-400">INFO: CANJES (A COSTO DE OBRA)</p>
-                        <div className="flex justify-between"><span>Terreno (Ya incl.)</span><span>${Math.round(resultados.ticket.terrenoCanje).toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span>Honorarios (Ya incl.)</span><span>${Math.round(resultados.ticket.honorariosCanje).toLocaleString()}</span></div>
-                      </div>
-
-                      <div className="flex justify-between text-emerald-400 font-bold bg-zinc-950 -mx-5 p-5 mt-4 border-t border-emerald-500/20 rounded-b-2xl">
-                        <span>TOTAL COSTO PROYECTO</span><span>${Math.round(resultados.ticket.totalCostoVivienda).toLocaleString()}</span>
-                      </div>
-                    </div>
+              {/* TABLA DE CUOTAS */}
+              {finCuotas > 0 && finPrecioVenta > 0 && (
+                <div className="mt-8 border-t border-zinc-100 pt-8">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-4">Proyección de Cuotas Base (USD)</h3>
+                  <div className="overflow-hidden rounded-xl border border-zinc-200">
+                    <table className="w-full text-left border-collapse bg-white">
+                      <thead className="bg-zinc-50">
+                        <tr>
+                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200">Cuota</th>
+                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200 text-right">Saldo Inicial</th>
+                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200 text-right">Amortización</th>
+                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200 text-right text-emerald-600">Cuota Base</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
+                          <td className="py-3 px-4 text-xs font-bold text-zinc-900">0 (Anticipo)</td>
+                          <td className="py-3 px-4 text-xs text-zinc-500 text-right">-</td>
+                          <td className="py-3 px-4 text-xs text-zinc-500 text-right">-</td>
+                          <td className="py-3 px-4 text-sm font-black text-emerald-600 text-right">${Math.round(finPrecioVenta * finAnticipoPct).toLocaleString()}</td>
+                        </tr>
+                        {/* Mostramos solo las primeras 5 cuotas para no hacer la tabla eterna, y puntos suspensivos */}
+                        {[...Array(Math.min(finCuotas, 5))].map((_, i) => (
+                          <tr key={i} className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
+                            <td className="py-3 px-4 text-xs font-bold text-zinc-900">Cuota {i + 1}</td>
+                            <td className="py-3 px-4 text-xs text-zinc-500 text-right">${Math.round((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * (1 + (finTasa * finCuotas))).toLocaleString()}</td>
+                            <td className="py-3 px-4 text-xs text-zinc-500 text-right">Sistema Lineal</td>
+                            <td className="py-3 px-4 text-sm font-black text-emerald-600 text-right">${Math.round(((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * (1 + (finTasa * finCuotas))) / finCuotas).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        {finCuotas > 5 && (
+                          <tr>
+                            <td colSpan={4} className="py-4 text-center text-xs font-bold text-zinc-400 tracking-widest uppercase bg-zinc-50">... {finCuotas - 5} cuotas restantes ...</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
-                )}
-              </div>
+                  <p className="text-[10px] text-zinc-400 mt-3">* El valor de "Cuota Base" expresado en esta tabla no incluye las actualizaciones futuras por el índice de la Cámara Argentina de la Construcción (CAC). Al momento del pago, se le adicionará dicho coeficiente.</p>
+                </div>
+              )}
             </div>
 
-            {/* TICKET 2: COTIZADOR FINANCIADO */}
-            {calcFinanzas && (
-              <div className="bg-emerald-950 p-8 rounded-3xl shadow-xl border border-emerald-900 relative overflow-hidden">
+            <div className="lg:col-span-4 space-y-8">
+              <div className="bg-emerald-950 p-8 rounded-3xl shadow-xl border border-emerald-900 relative overflow-hidden sticky top-8">
                 <div className="absolute top-0 right-0 w-40 h-40 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
                 <h2 className="text-[11px] font-bold text-emerald-400 mb-4 tracking-widest uppercase relative z-10 flex items-center">
-                  <Wallet className="w-4 h-4 mr-2" /> Plan Financiado Sugerido (m²)
+                  <Wallet className="w-4 h-4 mr-2" /> Plan Sugerido
                 </h2>
                 
                 <div className="bg-emerald-900/30 p-5 rounded-2xl font-mono text-[13px] text-emerald-200 border border-emerald-800/50 relative z-10">
-                  <div className="flex justify-between mb-2"><span>Precio Contado</span><span>${Math.round(resultados.precioSugeridoUSD).toLocaleString()}</span></div>
-                  <div className="flex justify-between mb-2"><span>Anticipo ({Math.round(finanzasAnticipo*100)}%)</span><span>${Math.round(calcFinanzas.anticipoUSD).toLocaleString()}</span></div>
-                  <div className="flex justify-between mb-4 border-b border-emerald-800/50 pb-2"><span>Saldo a Financiar</span><span>${Math.round(calcFinanzas.saldoAFinanciar).toLocaleString()}</span></div>
+                  <div className="flex justify-between mb-2"><span>Precio Contado</span><span>${Math.round(finPrecioVenta).toLocaleString()}</span></div>
+                  <div className="flex justify-between mb-2"><span>Anticipo ({Math.round(finAnticipoPct*100)}%)</span><span>${Math.round(finPrecioVenta * finAnticipoPct).toLocaleString()}</span></div>
+                  <div className="flex justify-between mb-4 border-b border-emerald-800/50 pb-2"><span>Saldo a Financiar</span><span>${Math.round(finPrecioVenta - (finPrecioVenta * finAnticipoPct)).toLocaleString()}</span></div>
                   
-                  <div className="flex justify-between mb-2 text-rose-300"><span>Costo Financiero</span><span>+ ${Math.round(calcFinanzas.costoFinanciero).toLocaleString()}</span></div>
+                  <div className="flex justify-between mb-2 text-rose-300"><span>Costo Financiero</span><span>+ ${Math.round((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * finTasa * finCuotas).toLocaleString()}</span></div>
                   
                   <div className="flex justify-between text-white font-bold bg-emerald-900 -mx-5 p-4 mt-4 border-t border-emerald-700">
-                    <span>NUEVO PRECIO FINANCIADO</span><span>${Math.round(calcFinanzas.precioFinanciado).toLocaleString()}</span>
+                    <span>PRECIO FINANCIADO</span><span>${Math.round(finPrecioVenta + ((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * finTasa * finCuotas)).toLocaleString()}</span>
                   </div>
                   
                   <div className="mt-4 pt-4 border-t border-dashed border-emerald-800">
-                    <p className="text-[10px] text-emerald-400 mb-1 uppercase tracking-widest text-center">Estructura de Pagos</p>
+                    <p className="text-[10px] text-emerald-400 mb-1 uppercase tracking-widest text-center">Estructura Comercial</p>
                     <div className="bg-black/20 p-4 rounded-xl text-center">
-                      <p className="text-white font-bold text-lg mb-1">1 Anticipo de ${Math.round(calcFinanzas.anticipoUSD).toLocaleString()}</p>
-                      <p className="text-emerald-300 text-sm font-medium">+ {finanzasCuotas} Cuotas de ${Math.round(calcFinanzas.cuotaBaseMensual).toLocaleString()}</p>
-                      <p className="text-[10px] text-emerald-500 mt-2">* Cuotas sujetas a ajuste por Tasa + índice CAC.</p>
+                      <p className="text-white font-bold text-lg mb-1">1 Anticipo de ${Math.round(finPrecioVenta * finAnticipoPct).toLocaleString()}</p>
+                      <p className="text-emerald-300 text-sm font-medium">+ {finCuotas} Cuotas de ${finCuotas > 0 ? Math.round(((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * (1 + (finTasa * finCuotas))) / finCuotas).toLocaleString() : 0}</p>
                     </div>
                   </div>
                 </div>
               </div>
-            )}
-
-            {/* CAJA DE GUARDADO */}
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-zinc-200/60">
-              <div className="mb-4">
-                <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-400 mb-2 flex items-center">
-                  <Calendar className="w-4 h-4 mr-2" /> Fecha del Corte
-                </label>
-                <input 
-                  type="date" 
-                  value={fechaReferencia} 
-                  onChange={(e) => setFechaReferencia(e.target.value)} 
-                  className="w-full bg-zinc-50 border border-zinc-200 text-zinc-900 rounded-xl px-4 py-3 font-semibold focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
-                />
-              </div>
-
-              <button onClick={guardarHistorial} disabled={guardando} className={`w-full flex items-center justify-center font-bold py-4 px-6 rounded-xl transition-all duration-300 ${guardando ? 'bg-zinc-200 text-zinc-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-[0_0_20px_rgba(79,70,229,0.3)] hover:shadow-[0_0_25px_rgba(79,70,229,0.5)] active:scale-[0.98]'}`}>
-                <Save className="w-5 h-5 mr-2" />
-                {guardando ? 'Guardando Corte...' : 'Fijar Corte Mensual'}
-              </button>
             </div>
-
           </div>
-        </div>
+        )}
 
       </div>
     </main>

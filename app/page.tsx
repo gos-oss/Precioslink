@@ -6,7 +6,6 @@ import Link from 'next/link'
 import { Settings, Building2, DollarSign, Activity, BarChart3, Briefcase, MapPin, Map, PieChart as PieChartIcon, Box, CalendarX2, AlertTriangle, Wallet } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts'
 
-// Nueva gama de colores más sobria y corporativa (Azul marino, Verde Petróleo, Rojo Óxido, Oro)
 const gradients = [
   'from-slate-700 to-slate-900',
   'from-emerald-700 to-teal-900',
@@ -16,7 +15,7 @@ const gradients = [
   'from-stone-600 to-stone-900'
 ]
 
-const COLORS = ['#1e293b', '#047857', '#991b1b', '#d97706', '#334155', '#be123c', '#0f766e', '#78716c'];
+const COLORS = ['#d97706', '#059669', '#2563eb', '#e11d48', '#7c3aed', '#0d9488', '#ea580c', '#0284c7'];
 
 export default function Home() {
   const [proyectos, setProyectos] = useState<any[]>([])
@@ -26,7 +25,6 @@ export default function Home() {
   
   const [proyectoSeleccionadoId, setProyectoSeleccionadoId] = useState<string>('todos')
   
-  // ESTADOS PARA EL MAPA INTERACTIVO
   const [mapaActivo, setMapaActivo] = useState<string>('San Miguel de Tucumán, Argentina')
   const [proyectoActivoMapa, setProyectoActivoMapa] = useState<string>('')
 
@@ -135,22 +133,33 @@ export default function Home() {
     <main className="min-h-screen bg-stone-50 p-4 md:p-8 font-sans text-slate-900 selection:bg-amber-100">
       <div className="max-w-7xl mx-auto space-y-8">
         
-        {/* ENCABEZADO LINK */}
-        <div className="bg-slate-950 rounded-xl p-8 shadow-xl flex flex-col md:flex-row justify-between items-center border-b-4 border-amber-500 relative overflow-hidden">
+        {/* ENCABEZADO LINK CON EL BANNER */}
+        <div className="bg-slate-950 rounded-xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-center border-b-4 border-amber-500 relative overflow-hidden">
           <div className="absolute top-0 right-0 w-96 h-96 bg-slate-800/20 rounded-full blur-3xl pointer-events-none"></div>
           
-          <div className="relative z-10 flex items-center gap-6">
-            {/* LOGO EXACTO AL DE LA IMAGEN */}
-            <div className="bg-black text-white font-black text-3xl px-4 py-3 tracking-tighter border-2 border-white/10 shadow-lg">
-              LINK
+          <div className="relative z-10 flex items-center gap-6 w-full md:w-auto">
+            
+            {/* AQUÍ CARGAMOS EL BANNER RECTANGULAR */}
+            <div className="flex-shrink-0 shadow-2xl flex items-center justify-center h-20 md:h-24 overflow-hidden rounded-lg border border-slate-700/50 bg-black">
+              <img 
+                src="/link-banner.png" 
+                alt="Banner LINK" 
+                className="h-full w-auto object-cover"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none';
+                  e.currentTarget.parentElement!.innerHTML = '<span class="text-white font-black text-2xl px-8">LINK</span>';
+                }}
+              />
             </div>
-            <div className="hidden md:block border-l border-slate-700 pl-6">
-              <p className="text-amber-500 font-medium tracking-widest text-[10px] uppercase">
-                Personas Reales. Experiencia que se nota.
-              </p>
-              <h1 className="text-2xl font-serif font-bold text-white mt-1 tracking-tight">
+            
+            {/* Título limpio, ya que el lema está en la imagen */}
+            <div className="hidden lg:block border-l border-slate-700 pl-6">
+              <h1 className="text-2xl font-serif font-bold text-white tracking-tight">
                 Comercialink Dashboard
               </h1>
+              <p className="text-slate-400 mt-1 font-medium tracking-wide text-xs uppercase">
+                Intelligence & Pricing
+              </p>
             </div>
           </div>
           
@@ -168,9 +177,8 @@ export default function Home() {
           <h2 className="text-3xl font-serif font-bold text-slate-900 mb-6 tracking-tight">Resumen</h2>
         </div>
 
-        {/* KPIs SUPERIORES (Estilo idéntico a la imagen) */}
+        {/* KPIs SUPERIORES */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          
           <div className="bg-white p-6 rounded-xl shadow-sm border border-stone-200 flex justify-between items-start transition-transform hover:-translate-y-1 duration-300">
             <div>
               <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest mb-3">
@@ -215,10 +223,9 @@ export default function Home() {
               <AlertTriangle className="w-5 h-5 text-red-800" />
             </div>
           </div>
-
         </div>
 
-        {/* GRID DE 4 PANELES CENTRALES (2x2) - ESTILO CORPORATIVO */}
+        {/* GRID DE PANELES CENTRALES */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-4">
           
           <div className="bg-slate-900 p-8 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">

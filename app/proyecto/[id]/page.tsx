@@ -45,6 +45,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [finAnticipoPct, setFinAnticipoPct] = useState(0.40)
   const [finCuotas, setFinCuotas] = useState(42)
   const [finTasa, setFinTasa] = useState(0.01)
+  
+  // ESTADO NUEVO: Para saber si el usuario escribió un descuento manual
+  const [precioModificadoManual, setPrecioModificadoManual] = useState(false)
 
   const [notificacion, setNotificacion] = useState({ mostrar: false, mensaje: '', tipo: 'exito' })
 
@@ -53,7 +56,8 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       const [resProyecto, resConfig, resHistorial, resUnidades] = await Promise.all([
         supabase.from('proyectos').select('*').eq('id', params.id).single(),
         supabase.from('configuracion_global').select('*').eq('id', 1).single(),
-        supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('id', { ascending: false }).limit(1),
+        // LA SOLUCIÓN: Ordenamos estrictamente por fecha_referencia para traer la última simulación real
+        supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('fecha_referencia', { ascending: false }).limit(1),
         supabase.from('unidades').select('*').eq('id_proyecto', params.id).order('identificador', { ascending: true })
       ])
       
@@ -74,6 +78,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
         if (ultimo.canje_tierra_porcentaje != null) setCanjeTierra(ultimo.canje_tierra_porcentaje)
         if (ultimo.margen_objetivo != null) setMargenObjetivo(ultimo.margen_objetivo)
         if (ultimo.pct_ajuste != null) setPctAjuste(ultimo.pct_ajuste)
+        if (ultimo.fecha_referencia) setFechaReferencia(ultimo.fecha_referencia)
       }
 
       if (resUnidades.data) setUnidades(resUnidades.data)
@@ -81,6 +86,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     fetchData()
   }, [params.id])
 
+  // Actualización Dinámica del Financiador
   useEffect(() => {
     if (proyecto && configGlobal) {
       try {
@@ -91,13 +97,19 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           pctIVA: configGlobal.tasa_iva, pctAdmin, pctImprevistos, pctAjuste
         })
         setResultados(res)
-        // Auto-completar un precio genérico solo si no hay unidad seleccionada y el precio está en 0
-        if (finPrecioVenta === 0 && !unidadSeleccionada) {
-          setFinPrecioVenta(Math.round(res.precioSugeridoUSD))
+        
+        // Si no hemos escrito el precio a mano, que siga el valor real calculado del escenario
+        if (!precioModificadoManual) {
+          if (unidadSeleccionada) {
+            const unidadElegida = unidades.find(u => u.id === unidadSeleccionada)
+            if (unidadElegida) setFinPrecioVenta(Math.round(unidadElegida.superficie_m2 * res.precioSugeridoUSD))
+          } else {
+            setFinPrecioVenta(Math.round(res.precioSugeridoUSD))
+          }
         }
       } catch (error) { console.error(error) }
     }
-  }, [proyecto, configGlobal, superficieVendible, costoDuroM2, valorTerrenoUSD, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos, pctAjuste])
+  }, [superficieVendible, costoDuroM2, valorTerrenoUSD, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos, pctAjuste, proyecto, configGlobal, unidadSeleccionada, unidades, precioModificadoManual])
 
   const mostrarNotificacion = (mensaje: string, tipo: 'exito' | 'error' = 'exito') => {
     setNotificacion({ mostrar: true, mensaje, tipo })
@@ -376,9 +388,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                   <p className="text-zinc-400 font-medium">No hay unidades cargadas en este proyecto.</p>
                 </div>
               ) : (
-                <div className="overflow-hidden rounded-2xl border border-zinc-200">
+                <div className="overflow-y-auto max-h-[600px] rounded-2xl border border-zinc-200 shadow-inner">
                   <table className="w-full text-left bg-white">
-                    <thead className="bg-zinc-50">
+                    <thead className="bg-zinc-50 sticky top-0 z-10 shadow-sm">
                       <tr>
                         <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200">Unidad</th>
                         <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200">Superficie</th>
@@ -433,11 +445,14 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                     onChange={(e) => {
                       const idUnidad = e.target.value;
                       setUnidadSeleccionada(idUnidad);
+                      setPrecioModificadoManual(false); // Reseteamos la traba de edición manual
                       if (idUnidad && resultados) {
                         const unidadElegida = unidades.find(u => u.id === idUnidad);
                         if (unidadElegida) {
                           setFinPrecioVenta(Math.round(unidadElegida.superficie_m2 * resultados.precioSugeridoUSD));
                         }
+                      } else if (resultados) {
+                        setFinPrecioVenta(Math.round(resultados.precioSugeridoUSD));
                       }
                     }}
                     className="w-full rounded-xl border-0 bg-white px-5 py-4 text-emerald-900 shadow-sm ring-1 ring-inset ring-emerald-200 focus:ring-2 focus:ring-emerald-600 transition-all font-bold text-lg cursor-pointer"
@@ -451,7 +466,15 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
                 <div className="col-span-1 md:col-span-2">
                   <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-zinc-400" /> 2. Valor de Venta (Contado USD)</label>
-                  <input type="number" value={finPrecioVenta} onChange={(e) => setFinPrecioVenta(Number(e.target.value))} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-black text-2xl" />
+                  <input 
+                    type="number" 
+                    value={finPrecioVenta} 
+                    onChange={(e) => {
+                      setFinPrecioVenta(Number(e.target.value));
+                      setPrecioModificadoManual(true); // Registra que escribiste a mano para no sobrescribirte
+                    }} 
+                    className="w-full rounded-xl border-0 bg-white px-5 py-4 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-black text-2xl" 
+                  />
                   <p className="text-[10px] text-zinc-400 mt-2 font-medium">Puedes sobrescribir este valor si deseas aplicar un descuento manual al cliente.</p>
                 </div>
                 <div>
@@ -467,6 +490,47 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                   <input type="number" value={finCuotas} onChange={(e) => setFinCuotas(Number(e.target.value))} className="w-full rounded-xl border-0 bg-zinc-50 px-4 py-3 text-zinc-900 shadow-sm ring-1 ring-inset ring-zinc-200 focus:ring-2 focus:ring-inset focus:ring-emerald-600 transition-all font-semibold" />
                 </div>
               </div>
+
+              {/* TABLA DE CUOTAS */}
+              {finCuotas > 0 && finPrecioVenta > 0 && (
+                <div className="mt-8 border-t border-zinc-100 pt-8">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-zinc-400 mb-4">Proyección de Cuotas Base (USD)</h3>
+                  <div className="overflow-hidden rounded-xl border border-zinc-200">
+                    <table className="w-full text-left border-collapse bg-white">
+                      <thead className="bg-zinc-50">
+                        <tr>
+                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200">Cuota</th>
+                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200 text-right">Saldo Inicial</th>
+                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200 text-right">Amortización</th>
+                          <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest border-b border-zinc-200 text-right text-emerald-600">Cuota Base</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
+                          <td className="py-3 px-4 text-xs font-bold text-zinc-900">0 (Anticipo)</td>
+                          <td className="py-3 px-4 text-xs text-zinc-500 text-right">-</td>
+                          <td className="py-3 px-4 text-xs text-zinc-500 text-right">-</td>
+                          <td className="py-3 px-4 text-sm font-black text-emerald-600 text-right">${Math.round(finPrecioVenta * finAnticipoPct).toLocaleString()}</td>
+                        </tr>
+                        {[...Array(Math.min(finCuotas, 5))].map((_, i) => (
+                          <tr key={i} className="border-b border-zinc-100 hover:bg-zinc-50 transition-colors">
+                            <td className="py-3 px-4 text-xs font-bold text-zinc-900">Cuota {i + 1}</td>
+                            <td className="py-3 px-4 text-xs text-zinc-500 text-right">${Math.round((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * (1 + (finTasa * finCuotas))).toLocaleString()}</td>
+                            <td className="py-3 px-4 text-xs text-zinc-500 text-right">Sistema Lineal</td>
+                            <td className="py-3 px-4 text-sm font-black text-emerald-600 text-right">${Math.round(((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * (1 + (finTasa * finCuotas))) / finCuotas).toLocaleString()}</td>
+                          </tr>
+                        ))}
+                        {finCuotas > 5 && (
+                          <tr>
+                            <td colSpan={4} className="py-4 text-center text-xs font-bold text-zinc-400 tracking-widest uppercase bg-zinc-50">... {finCuotas - 5} cuotas restantes ...</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[10px] text-zinc-400 mt-3">* El valor de "Cuota Base" expresado en esta tabla no incluye las actualizaciones futuras por el índice de la Cámara Argentina de la Construcción (CAC). Al momento del pago, se le adicionará dicho coeficiente.</p>
+                </div>
+              )}
             </div>
 
             <div className="lg:col-span-4 space-y-8">

@@ -1,12 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import Link from 'next/link'
 import { Settings, Building2, DollarSign, Activity, BarChart3, Briefcase } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar } from 'recharts'
 
-// Paleta de degradados premium para los proyectos
 const gradients = [
   'from-indigo-500 to-purple-500',
   'from-emerald-500 to-teal-500',
@@ -21,6 +20,9 @@ export default function Home() {
   const [historial, setHistorial] = useState<any[]>([])
   const [resumenPrecios, setResumenPrecios] = useState<any[]>([])
   const [cargando, setCargando] = useState(true)
+  
+  // NUEVO ESTADO: Proyecto seleccionado para el gráfico de evolución
+  const [proyectoSeleccionadoId, setProyectoSeleccionadoId] = useState<string>('todos')
 
   useEffect(() => {
     async function fetchData() {
@@ -45,14 +47,12 @@ export default function Home() {
 
         if (dataProyectos) {
           const resumen = dataProyectos.map(p => {
-            // Usamos el historial ya formateado para extraer la fecha limpia fácilmente
             const historialProyecto = historialFormateado.filter(h => h.id_proyecto === p.id)
             const ultimoRegistro = historialProyecto.length > 0 ? historialProyecto[historialProyecto.length - 1] : null
             return {
               nombre: p.nombre,
               id: p.id,
               ultimoPrecioUSD: ultimoRegistro ? Math.round(Number(ultimoRegistro.resultado_precio_promedio_usd)) : 0,
-              // NUEVO: Agregamos la última fecha al resumen
               ultimaFecha: ultimoRegistro ? ultimoRegistro.fecha : '-'
             }
           }).filter(r => r.ultimoPrecioUSD > 0)
@@ -64,6 +64,30 @@ export default function Home() {
     }
     fetchData()
   }, [])
+
+  // NUEVA LÓGICA: Filtrar el historial según el selector
+  const datosGraficoLinea = useMemo(() => {
+    if (proyectoSeleccionadoId === 'todos') {
+      // Si elegimos "Todos", agrupamos por fecha y calculamos el promedio del portafolio en ese momento
+      const agrupado = historial.reduce((acc, curr) => {
+        const ref = curr.fecha_referencia;
+        if (!acc[ref]) acc[ref] = { fecha_referencia: ref, fecha: curr.fecha, sum: 0, count: 0 };
+        acc[ref].sum += curr.resultado_precio_promedio_usd;
+        acc[ref].count += 1;
+        return acc;
+      }, {} as any);
+      
+      return Object.values(agrupado)
+        .sort((a: any, b: any) => a.fecha_referencia.localeCompare(b.fecha_referencia))
+        .map((item: any) => ({
+          fecha: item.fecha,
+          resultado_precio_promedio_usd: Math.round(item.sum / item.count)
+        }));
+    } else {
+      // Si elegimos un proyecto, filtramos solo sus registros
+      return historial.filter(h => h.id_proyecto === proyectoSeleccionadoId);
+    }
+  }, [historial, proyectoSeleccionadoId]);
 
   if (cargando) return (
     <div className="min-h-screen bg-zinc-100 flex items-center justify-center">
@@ -90,8 +114,9 @@ export default function Home() {
               <Activity className="w-8 h-8 text-indigo-400" />
             </div>
             <div>
+              {/* CAMBIO 1: COMERCIAL LINK */}
               <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
-                Precios<span className="text-indigo-400 font-light">link</span>
+                Comercial<span className="text-indigo-400 font-light">link</span>
               </h1>
               <p className="text-zinc-400 mt-1 font-medium tracking-wide text-sm uppercase">Intelligence & Pricing Dashboard</p>
             </div>
@@ -132,10 +157,9 @@ export default function Home() {
           </div>
         </div>
 
-        {/* PANELES CENTRALES (Ahora son 3 columnas) */}
+        {/* PANELES CENTRALES */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Columna 1: Gráfico de Barras */}
           <div className="bg-zinc-950 p-8 rounded-3xl shadow-xl border border-zinc-800 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none"></div>
             <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Ranking (USD/m²)</h2>
@@ -156,12 +180,9 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Columna 2: NUEVA TABLA CENTRAL */}
           <div className="bg-zinc-950 p-8 rounded-3xl shadow-xl border border-zinc-800 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/5 rounded-full blur-3xl pointer-events-none"></div>
             <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Precios Actuales</h2>
-            
-            {/* Contenedor con scroll para la tabla */}
             <div className="h-72 w-full relative z-10 overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin', scrollbarColor: '#3f3f46 transparent' }}>
               <table className="w-full text-left border-collapse">
                 <thead className="sticky top-0 bg-zinc-950 z-20">
@@ -187,14 +208,28 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Columna 3: Gráfico de Evolución de Área */}
           <div className="bg-zinc-950 p-8 rounded-3xl shadow-xl border border-zinc-800 relative overflow-hidden">
             <div className="absolute top-0 left-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
-            <h2 className="text-xs font-bold text-zinc-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Evolución Histórica</h2>
+            
+            {/* CAMBIO 2: SELECTOR DE PROYECTO */}
+            <div className="flex items-center justify-between mb-6 relative z-10">
+              <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">Evolución Histórica</h2>
+              <select 
+                value={proyectoSeleccionadoId} 
+                onChange={(e) => setProyectoSeleccionadoId(e.target.value)}
+                className="bg-zinc-900 border border-zinc-700 text-zinc-300 text-[10px] font-bold uppercase rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+              >
+                <option value="todos">Promedio Global</option>
+                {proyectos.map(p => (
+                  <option key={p.id} value={p.id}>{p.nombre}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="h-72 w-full relative z-10">
-               {historial.length > 0 ? (
+               {datosGraficoLinea.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={historial} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <AreaChart data={datosGraficoLinea} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorPrecio" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
@@ -209,7 +244,7 @@ export default function Home() {
                   </AreaChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-full flex items-center justify-center text-zinc-600 text-sm italic">Guarda escenarios para ver tendencia.</div>
+                <div className="h-full flex items-center justify-center text-zinc-600 text-sm italic">Sin historial para este proyecto.</div>
               )}
             </div>
           </div>
@@ -227,8 +262,6 @@ export default function Home() {
               
               return (
                 <Link key={proyecto.id} href={`/proyecto/${proyecto.id}`} className="group bg-white rounded-3xl border border-zinc-200/60 hover:shadow-xl hover:shadow-indigo-500/10 transition-all duration-300 flex flex-col h-56 cursor-pointer overflow-hidden transform hover:-translate-y-1">
-                  
-                  {/* PORTADA DE COLOR ABSTRACTA */}
                   <div className={`h-16 w-full bg-gradient-to-r ${gradientClass} opacity-80 group-hover:opacity-100 transition-opacity duration-300`}></div>
                   
                   <div className="p-6 flex-1 flex flex-col justify-between">
@@ -248,7 +281,7 @@ export default function Home() {
                     </div>
                     
                     <div className="flex items-center text-indigo-600 text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity transform translate-x-[-10px] group-hover:translate-x-0 duration-300">
-                      Modelar Escenario &rarr;
+                      Gestionar Proyecto &rarr;
                     </div>
                   </div>
                 </Link>

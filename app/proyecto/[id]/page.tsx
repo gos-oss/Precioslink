@@ -28,10 +28,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [pctAjuste, setPctAjuste] = useState(0)
   
   // VARIABLES DEL SIMULADOR DE FINANCIACIÓN
-  const [finanzasAnticipo, setFinanzasAnticipo] = useState(0.40) // 40%
-  const [finanzasCuotas, setFinanzasCuotas] = useState(42) // 42 meses
-  const [finanzasTasaMensual, setFinanzasTasaMensual] = useState(0.01) // 1%
-  const [finanzasCAC, setFinanzasCAC] = useState(0.05) // Estimación CAC 5%
+  const [finanzasAnticipo, setFinanzasAnticipo] = useState(0.40) 
+  const [finanzasCuotas, setFinanzasCuotas] = useState(42) 
+  const [finanzasTasaMensual, setFinanzasTasaMensual] = useState(0.01) 
   
   const [fechaReferencia, setFechaReferencia] = useState(getTodayDate())
   const [resultados, setResultados] = useState<any>(null)

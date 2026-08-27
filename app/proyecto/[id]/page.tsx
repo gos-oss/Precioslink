@@ -17,7 +17,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [editandoNombre, setEditandoNombre] = useState(false)
   const [nuevoNombre, setNuevoNombre] = useState('')
   
-  // NUEVA PESTAÑA: CTA_CTE
   const [activeTab, setActiveTab] = useState('PRECIOS')
 
   const [superficieVendible, setSuperficieVendible] = useState(5000)
@@ -49,10 +48,12 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [clienteNombre, setClienteNombre] = useState('')
   const [guardandoOperacion, setGuardandoOperacion] = useState(false)
 
-  // Variables de CTA CTE (Operaciones y Cuotas)
+  // Variables de CTA CTE (Operaciones, Cuotas y Ajustes CAC)
   const [operaciones, setOperaciones] = useState<any[]>([])
   const [operacionSeleccionada, setOperacionSeleccionada] = useState<any>(null)
   const [cuotasOperacion, setCuotasOperacion] = useState<any[]>([])
+  const [porcentajeAjuste, setPorcentajeAjuste] = useState<number | ''>('')
+  const [aplicandoAjuste, setAplicandoAjuste] = useState(false)
 
   const [direccionProyecto, setDireccionProyecto] = useState('')
   const [guardandoDireccion, setGuardandoDireccion] = useState(false)
@@ -205,7 +206,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     }
   }
 
-  // --- FUNCIÓN INTELIGENTE DE REGISTRO DE VENTA ---
+  // --- REGISTRO DE VENTA ---
   async function registrarVenta() {
     if (!unidadSeleccionada) {
       mostrarNotificacion('Debes seleccionar una unidad específica', 'error')
@@ -218,14 +219,12 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
     setGuardandoOperacion(true)
     
-    // 1. Cálculos de la Operación
     const anticipoUSD = finPrecioVenta * finAnticipoPct;
     const saldoFinanciar = finPrecioVenta - anticipoUSD;
     const costoFinanciero = saldoFinanciar * finTasa * finCuotas;
     const totalFinanciado = saldoFinanciar + costoFinanciero;
     const cuotaBase = finCuotas > 0 ? (totalFinanciado / finCuotas) : 0;
 
-    // 2. Insertar Operación Matriz en Base de Datos
     const { data: operacionInsertada, error: errorOp } = await supabase.from('si_operaciones').insert({
       id_proyecto: proyecto.id,
       id_unidad: unidadSeleccionada,
@@ -243,21 +242,18 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       return
     }
 
-    // 3. Generar Plan de Pagos (Cuotas)
     const cuotasArray = [];
     const fechaVenta = new Date();
     
-    // Cuota 0 (Anticipo)
     cuotasArray.push({
       id_operacion: operacionInsertada.id,
       numero_cuota: 0,
       monto_usd: anticipoUSD,
-      fecha_vencimiento: fechaVenta.toISOString().split('T')[0], // Vence hoy
-      estado: 'pagada', // Asumimos que el anticipo se paga al firmar
+      fecha_vencimiento: fechaVenta.toISOString().split('T')[0],
+      estado: 'pagada',
       fecha_pago: fechaVenta.toISOString().split('T')[0]
     });
 
-    // Cuotas 1 a N
     for (let i = 1; i <= finCuotas; i++) {
        const fechaVencimiento = new Date(fechaVenta);
        fechaVencimiento.setMonth(fechaVencimiento.getMonth() + i);
@@ -275,28 +271,28 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       await supabase.from('si_cuotas').insert(cuotasArray);
     }
 
-    // 4. Actualizar Estado de la Unidad
     await supabase.from('unidades').update({ estado: 'vendida' }).eq('id', unidadSeleccionada)
 
-    // 5. Reflejar en Interfaz
     setUnidades(unidades.map(u => u.id === unidadSeleccionada ? { ...u, estado: 'vendida' } : u))
     setOperaciones([operacionInsertada, ...operaciones])
     setUnidadSeleccionada('')
     setClienteNombre('')
     mostrarNotificacion('¡Operación y Plan de Pagos registrados!')
     setGuardandoOperacion(false)
-    setActiveTab('CTA_CTE') // Navega automáticamente al panel de Cobranzas
+    setActiveTab('CTA_CTE')
   }
 
-  // --- CARGAR CUOTAS DE UNA OPERACION (CTA CTE) ---
+  // --- CTA CTE: CARGAR CUOTAS Y AJUSTE DE ÍNDICE ---
   async function cargarEstadoCuenta(op: any) {
     if (operacionSeleccionada?.id === op.id) {
-      setOperacionSeleccionada(null) // Cerrar si se clickea de nuevo
+      setOperacionSeleccionada(null)
+      setPorcentajeAjuste('')
       return;
     }
     const { data } = await supabase.from('si_cuotas').select('*').eq('id_operacion', op.id).order('numero_cuota', { ascending: true });
     setCuotasOperacion(data || []);
     setOperacionSeleccionada(op);
+    setPorcentajeAjuste(''); // Reiniciamos el input
   }
 
   async function registrarPagoCuota(idCuota: string) {
@@ -308,10 +304,53 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     }
   }
 
+  // LA MAGIA: ACTUALIZACIÓN DE CUOTAS POR ÍNDICE (CAC / HORMIGÓN)
+  async function aplicarAjusteCAC() {
+    if (!operacionSeleccionada || Number(porcentajeAjuste) <= 0) return;
+    setAplicandoAjuste(true);
+
+    const cuotasPendientes = cuotasOperacion.filter(c => c.estado === 'pendiente');
+    if (cuotasPendientes.length === 0) {
+      mostrarNotificacion('El cliente no tiene saldo pendiente para ajustar.', 'error');
+      setAplicandoAjuste(false);
+      return;
+    }
+
+    let errorHubo = false;
+    const nuevasCuotas = [...cuotasOperacion];
+    const coef = 1 + (Number(porcentajeAjuste) / 100);
+
+    for (const cuota of cuotasPendientes) {
+      const nuevoMonto = cuota.monto_usd * coef;
+      const { error } = await supabase.from('si_cuotas').update({ monto_usd: nuevoMonto }).eq('id', cuota.id);
+
+      if (error) {
+        errorHubo = true;
+      } else {
+        const index = nuevasCuotas.findIndex(c => c.id === cuota.id);
+        if (index !== -1) nuevasCuotas[index].monto_usd = nuevoMonto;
+      }
+    }
+
+    setCuotasOperacion(nuevasCuotas);
+    setAplicandoAjuste(false);
+    setPorcentajeAjuste('');
+    
+    if (!errorHubo) {
+      mostrarNotificacion(`Saldos pendientes actualizados (+${porcentajeAjuste}%)`);
+    } else {
+      mostrarNotificacion('Hubo un error al ajustar algunas cuotas', 'error');
+    }
+  }
+
   const unidadesDisponibles = unidades.filter(u => u.estado === 'disponible');
   const m2Disponibles = unidadesDisponibles.reduce((acc, u) => acc + Number(u.superficie_m2), 0);
   const valorInventario = resultados ? Math.round(m2Disponibles * resultados.precioSugeridoUSD) : 0;
   const unidadesFiltradas = filtroEstado === 'todos' ? unidades : unidades.filter(u => u.estado === filtroEstado);
+
+  // Cálculos en tiempo real del Estado de Cuenta
+  const totalPagado = cuotasOperacion.filter(c => c.estado === 'pagada').reduce((acc, c) => acc + Number(c.monto_usd), 0);
+  const totalPendiente = cuotasOperacion.filter(c => c.estado === 'pendiente').reduce((acc, c) => acc + Number(c.monto_usd), 0);
 
   if (!proyecto || !configGlobal) return (
     <div className="min-h-screen bg-stone-50 flex items-center justify-center">
@@ -358,7 +397,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         </div>
 
-        {/* NAVEGACIÓN POR PESTAÑAS (Agregado CTA CTE) */}
+        {/* NAVEGACIÓN POR PESTAÑAS */}
         <div className="flex space-x-2 border-b border-stone-200 mb-8 pb-px overflow-x-auto">
           <button onClick={() => setActiveTab('PRECIOS')} className={`flex items-center px-6 py-3 font-bold text-sm rounded-t-xl transition-all whitespace-nowrap ${activeTab === 'PRECIOS' ? 'bg-white text-amber-600 border-t border-l border-r border-stone-200' : 'text-slate-500 hover:text-slate-700 hover:bg-stone-200/50'}`}>
             <Tag className="w-4 h-4 mr-2" /> PRICING
@@ -377,9 +416,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </button>
         </div>
 
-        {/* ==================================================== */}
         {/* PESTAÑA: PRECIOS */}
-        {/* ==================================================== */}
         {activeTab === 'PRECIOS' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8 space-y-8">
@@ -478,9 +515,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
-        {/* ==================================================== */}
         {/* PESTAÑA: STOCK */}
-        {/* ==================================================== */}
         {activeTab === 'STOCK' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-4 space-y-8">
@@ -569,9 +604,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
-        {/* ==================================================== */}
         {/* PESTAÑA: FINANCIADOR */}
-        {/* ==================================================== */}
         {activeTab === 'FINANCIADOR' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8 bg-white p-8 rounded-2xl shadow-sm border border-stone-200">
@@ -665,14 +698,11 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                 <h2 className="text-[11px] font-bold text-emerald-400 mb-4 tracking-widest uppercase relative z-10 flex items-center">
                   <Wallet className="w-4 h-4 mr-2" /> Plan Sugerido
                 </h2>
-                
                 <div className="bg-slate-800/50 p-5 rounded-2xl font-mono text-[13px] text-slate-200 border border-slate-700 relative z-10">
                   <div className="flex justify-between mb-2"><span>Precio Contado</span><span>${Math.round(finPrecioVenta).toLocaleString()}</span></div>
                   <div className="flex justify-between mb-2"><span>Anticipo ({Math.round(finAnticipoPct*100)}%)</span><span>${Math.round(finPrecioVenta * finAnticipoPct).toLocaleString()}</span></div>
                   <div className="flex justify-between mb-4 border-b border-slate-700 pb-2"><span>Saldo a Financiar</span><span>${Math.round(finPrecioVenta - (finPrecioVenta * finAnticipoPct)).toLocaleString()}</span></div>
-                  
                   <div className="flex justify-between mb-2 text-rose-400"><span>Costo Financiero</span><span>+ ${Math.round((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * finTasa * finCuotas).toLocaleString()}</span></div>
-                  
                   <div className="flex justify-between text-white font-bold bg-slate-950 -mx-5 p-4 mt-4 border-t border-slate-700">
                     <span>PRECIO FINANCIADO</span><span>${Math.round(finPrecioVenta + ((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * finTasa * finCuotas)).toLocaleString()}</span>
                   </div>
@@ -685,7 +715,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                   <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest mb-4 flex items-center relative z-10">
                     <CheckSquare className="w-4 h-4 mr-2 text-amber-500" /> Cierre de Operación
                   </h3>
-                  
                   <div className="relative z-10">
                     <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Nombre del Cliente</label>
                     <div className="relative mb-4">
@@ -693,18 +722,11 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                         <User className="h-4 w-4 text-stone-400" />
                       </div>
                       <input 
-                        type="text" 
-                        placeholder="Ej: Juan Pérez" 
-                        value={clienteNombre} 
-                        onChange={e => setClienteNombre(e.target.value)}
+                        type="text" placeholder="Ej: Juan Pérez" value={clienteNombre} onChange={e => setClienteNombre(e.target.value)}
                         className="w-full pl-10 bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 outline-none transition-all"
                       />
                     </div>
-                    <button 
-                      onClick={registrarVenta}
-                      disabled={guardandoOperacion}
-                      className="w-full flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md active:scale-95"
-                    >
+                    <button onClick={registrarVenta} disabled={guardandoOperacion} className="w-full flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md active:scale-95">
                       {guardandoOperacion ? 'Registrando...' : 'Confirmar Venta y Generar Cuotas'}
                     </button>
                   </div>
@@ -714,21 +736,18 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
-        {/* ==================================================== */}
-        {/* NUEVA PESTAÑA: CUENTAS CORRIENTES (COBRANZAS) */}
-        {/* ==================================================== */}
+        {/* PESTAÑA: CUENTAS CORRIENTES (COBRANZAS) + ACTUALIZACIÓN CAC */}
         {activeTab === 'CTA_CTE' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* LISTADO DE CLIENTES */}
-            <div className="lg:col-span-5 space-y-4">
+            <div className="lg:col-span-4 space-y-4">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
                 <h2 className="text-sm font-bold text-slate-800 flex items-center uppercase tracking-widest mb-4">
-                  <User className="w-5 h-5 mr-3 text-emerald-600" /> Clientes del Proyecto
+                  <User className="w-5 h-5 mr-3 text-emerald-600" /> Clientes
                 </h2>
                 
                 {operaciones.length === 0 ? (
                   <div className="py-8 text-center border-2 border-dashed border-stone-200 rounded-xl">
-                    <p className="text-slate-400 font-medium text-sm">No hay ventas registradas aún.</p>
+                    <p className="text-slate-400 font-medium text-sm">No hay ventas registradas.</p>
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin' }}>
@@ -745,10 +764,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 font-medium">{op.forma_pago}</p>
-                        <div className="mt-3 flex justify-between items-center text-xs">
-                          <span className="font-black text-emerald-700">${Math.round(op.precio_total_usd).toLocaleString()} USD</span>
-                          <span className="text-emerald-600 font-bold text-[10px] uppercase tracking-wider">Ver Estado &rarr;</span>
-                        </div>
                       </div>
                     ))}
                   </div>
@@ -756,18 +771,50 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
               </div>
             </div>
 
-            {/* ESTADO DE CUENTA (CUOTAS) */}
-            <div className="lg:col-span-7">
+            <div className="lg:col-span-8">
               {operacionSeleccionada ? (
                 <div className="bg-white p-8 rounded-2xl shadow-sm border border-stone-200">
                   <div className="flex justify-between items-center border-b border-stone-100 pb-4 mb-6">
                     <div>
-                      <h2 className="text-lg font-black text-slate-800">{operacionSeleccionada.cliente}</h2>
+                      <h2 className="text-xl font-black text-slate-800">{operacionSeleccionada.cliente}</h2>
                       <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Unidad {operacionSeleccionada.unidades?.identificador} • {operacionSeleccionada.cantidad_cuotas} Cuotas</p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Total Operación</p>
-                      <p className="text-2xl font-black text-emerald-600">${Math.round(operacionSeleccionada.precio_total_usd).toLocaleString()}</p>
+                    <div className="flex gap-6 text-right">
+                       <div>
+                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Total Pagado</p>
+                         <p className="text-xl font-black text-emerald-600">${Math.round(totalPagado).toLocaleString()}</p>
+                       </div>
+                       <div>
+                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Saldo Deudor</p>
+                         <p className="text-xl font-black text-rose-500">${Math.round(totalPendiente).toLocaleString()}</p>
+                       </div>
+                    </div>
+                  </div>
+
+                  {/* MOTOR DE AJUSTE CAC / HORMIGÓN */}
+                  <div className="flex flex-col md:flex-row justify-between items-center bg-amber-50 p-4 rounded-xl border border-amber-200 mb-6">
+                    <div className="flex items-center mb-3 md:mb-0">
+                      <TrendingUp className="w-5 h-5 text-amber-600 mr-3" />
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-widest">Ajuste de Saldos (CAC / Hormigón)</h4>
+                        <p className="text-[10px] text-slate-600 mt-0.5">Aplica un % de incremento a todas las cuotas <strong>pendientes</strong>.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <input 
+                          type="number" step="0.1" value={porcentajeAjuste} onChange={(e) => setPorcentajeAjuste(e.target.value !== '' ? Number(e.target.value) : '')}
+                          placeholder="Ej: 4.5"
+                          className="w-24 pl-3 pr-8 py-2 text-sm font-bold text-slate-900 bg-white border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
+                        />
+                        <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">%</span>
+                      </div>
+                      <button 
+                        onClick={aplicarAjusteCAC} disabled={aplicandoAjuste || Number(porcentajeAjuste) <= 0}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-sm ${aplicandoAjuste || Number(porcentajeAjuste) <= 0 ? 'bg-amber-200 text-amber-500' : 'bg-amber-500 hover:bg-amber-600 text-white active:scale-95'}`}
+                      >
+                        {aplicandoAjuste ? 'Cargando...' : 'Ajustar'}
+                      </button>
                     </div>
                   </div>
 
@@ -792,7 +839,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                             <td className="py-3 px-4 text-xs font-medium text-slate-500">
                               {new Date(cuota.fecha_vencimiento).toLocaleDateString('es-AR')}
                             </td>
-                            <td className="py-3 px-4 text-sm font-black text-slate-800 text-right">
+                            <td className={`py-3 px-4 text-sm font-black text-right ${cuota.estado === 'pagada' ? 'text-emerald-700' : 'text-slate-800'}`}>
                               ${Math.round(cuota.monto_usd).toLocaleString()}
                             </td>
                             <td className="py-3 px-4 text-center">
@@ -825,9 +872,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
-        {/* ==================================================== */}
         {/* PESTAÑA: UBICACIÓN */}
-        {/* ==================================================== */}
         {activeTab === 'UBICACION' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-4 space-y-8">

@@ -15,10 +15,8 @@ const gradients = [
   'from-stone-600 to-stone-900'
 ]
 
-// COLORES DE ALTO CONTRASTE
 const COLORS = ['#f59e0b', '#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#14b8a6', '#ec4899', '#0ea5e9'];
 
-// Generador del Motor del Mapa Múltiple (OpenStreetMap Libre)
 const generarMapaHTML = (proyectosFiltrados: any[]) => {
   const proyectosStr = JSON.stringify(proyectosFiltrados);
   
@@ -40,17 +38,15 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
     <body>
       <div id="map"></div>
       <script>
-        // Capa base 100% Libre y Gratuita (Sin marcas de agua)
         const map = L.map('map').setView([-26.82414, -65.2226], 13);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          attribution: '&copy; OpenStreetMap'
         }).addTo(map);
 
         const proyectos = ${proyectosStr};
         const markersData = {};
         const markersList = [];
         
-        // Icono Dorado Elegante
         const myIcon = L.icon({
           iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
           shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
@@ -62,7 +58,6 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
 
         const cache = JSON.parse(localStorage.getItem('geocode_cache_v2') || '{}');
 
-        // Escuchar clics para hacer zoom
         window.addEventListener('message', function(event) {
            if(event.data && event.data.type === 'zoomTo') {
               const data = markersData[event.data.direccion];
@@ -80,8 +75,6 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
             if (!p.direccion) continue;
             
             let lat, lon;
-            
-            // Truco para mejorar la puntería del buscador si la dirección es muy corta
             let direccionBusqueda = p.direccion;
             if (!direccionBusqueda.toLowerCase().includes('tucuman') && !direccionBusqueda.toLowerCase().includes('tucumán')) {
                direccionBusqueda = direccionBusqueda + ', Tucumán, Argentina';
@@ -103,8 +96,6 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
                   cacheUpdated = true;
                 }
               } catch (e) { console.error('Error', p.nombre); }
-              
-              // Pausa técnica
               await new Promise(r => setTimeout(r, 1200));
             }
 
@@ -125,7 +116,6 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
             localStorage.setItem('geocode_cache_v2', JSON.stringify(cache));
           }
 
-          // Ajustar cámara para que se vean todos los pines centrados
           if (markersList.length > 0) {
             map.fitBounds(markersList, { padding: [50, 50], maxZoom: 15 });
           }
@@ -251,6 +241,8 @@ export default function Home() {
     : 0;
 
   const valorTotalInventario = resumenPrecios.reduce((acc, curr) => acc + curr.valorInventario, 0);
+  const m2TotalesDisponibles = Math.round(resumenPrecios.reduce((acc, curr) => acc + curr.m2Disponibles, 0));
+  
   const datosTorta = resumenPrecios.filter(r => r.valorInventario > 0).sort((a, b) => b.valorInventario - a.valorInventario);
   const formatTooltipPie = (value: number) => [`$${value.toLocaleString()} USD`, 'Valor Inventario'];
 
@@ -274,14 +266,9 @@ export default function Home() {
                 }}
               />
             </div>
-            
             <div className="hidden lg:block border-l border-slate-700 pl-6">
-              <h1 className="text-2xl font-serif font-bold text-white tracking-tight">
-                Comercialink Dashboard
-              </h1>
-              <p className="text-slate-400 mt-1 font-medium tracking-wide text-xs uppercase">
-                Intelligence & Pricing
-              </p>
+              <h1 className="text-2xl font-serif font-bold text-white tracking-tight">Comercialink Dashboard</h1>
+              <p className="text-slate-400 mt-1 font-medium tracking-wide text-xs uppercase">Intelligence & Pricing</p>
             </div>
           </div>
           
@@ -303,9 +290,7 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="bg-white p-6 rounded-xl shadow-sm border border-stone-200 flex justify-between items-start transition-transform hover:-translate-y-1 duration-300">
             <div>
-              <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest mb-3">
-                Total Proyectos
-              </p>
+              <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest mb-3">Total Proyectos</p>
               <div className="flex items-baseline">
                 <p className="text-4xl font-bold text-slate-800 font-serif">{proyectos.length}</p>
                 <span className="text-xl text-slate-800 font-serif ml-2">activos</span>
@@ -318,9 +303,7 @@ export default function Home() {
           
           <div className="bg-white p-6 rounded-xl shadow-sm border border-stone-200 flex justify-between items-start transition-transform hover:-translate-y-1 duration-300">
             <div>
-              <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest mb-3">
-                Promedio Portafolio
-              </p>
+              <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest mb-3">Promedio Portafolio</p>
               <div className="flex items-baseline text-emerald-700">
                 <span className="text-xl font-serif mr-2">$</span>
                 <p className="text-4xl font-bold font-serif">{precioPromedioPortafolio.toLocaleString()}</p>
@@ -333,12 +316,14 @@ export default function Home() {
 
           <div className="bg-white p-6 rounded-xl shadow-sm border border-stone-200 flex justify-between items-start transition-transform hover:-translate-y-1 duration-300">
             <div>
-              <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest mb-3">
-                Inventario Disponible
-              </p>
+              <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest mb-3">Inventario Disponible</p>
               <div className="flex items-baseline text-red-800">
                 <span className="text-xl font-serif mr-2">$</span>
                 <p className="text-4xl font-bold font-serif">{valorTotalInventario.toLocaleString()}</p>
+              </div>
+              <div className="mt-3 inline-flex items-center bg-red-50 px-2 py-1 rounded border border-red-100">
+                 <Box className="w-3 h-3 text-red-600 mr-1" />
+                 <span className="text-[11px] font-bold text-red-700 uppercase tracking-wider">{m2TotalesDisponibles.toLocaleString('es-AR')} m² libres</span>
               </div>
             </div>
             <div className="bg-red-50 p-3 rounded-lg">
@@ -451,7 +436,7 @@ export default function Home() {
                   <tr className="border-b border-slate-700">
                     <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Proyecto</th>
                     <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Inv. (USD)</th>
-                    <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Precio/m²</th>
+                    <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Stock (m²)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -459,7 +444,7 @@ export default function Home() {
                     <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/50 transition-colors">
                       <td className="py-3 text-xs font-bold text-slate-200">{item.nombre}</td>
                       <td className="py-3 text-xs font-medium text-amber-500 text-center">${item.valorInventario.toLocaleString()}</td>
-                      <td className="py-3 text-xs font-black text-emerald-500 text-right">${item.ultimoPrecioUSD.toLocaleString()}</td>
+                      <td className="py-3 text-xs font-medium text-slate-400 text-center">{Math.round(item.m2Disponibles).toLocaleString('es-AR')} m²</td>
                     </tr>
                   ))}
                 </tbody>

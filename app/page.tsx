@@ -15,10 +15,10 @@ const gradients = [
   'from-stone-600 to-stone-900'
 ]
 
-// COLORES DE ALTO CONTRASTE (Para el gráfico de Torta)
+// COLORES DE ALTO CONTRASTE
 const COLORS = ['#f59e0b', '#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#14b8a6', '#ec4899', '#0ea5e9'];
 
-// Generador del Motor del Mapa Múltiple (Leaflet inyectado en Iframe)
+// Generador del Motor del Mapa Múltiple (OpenStreetMap Libre)
 const generarMapaHTML = (proyectosFiltrados: any[]) => {
   const proyectosStr = JSON.stringify(proyectosFiltrados);
   
@@ -40,10 +40,10 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
     <body>
       <div id="map"></div>
       <script>
-        // Capa base estilo corporativo (CartoDB Voyager)
+        // Capa base 100% Libre y Gratuita (Sin marcas de agua)
         const map = L.map('map').setView([-26.82414, -65.2226], 13);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-          attribution: '&copy; OpenStreetMap & CARTO'
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }).addTo(map);
 
         const proyectos = ${proyectosStr};
@@ -60,10 +60,9 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
           shadowSize: [41, 41]
         });
 
-        // Memoria Caché Inteligente (evita bloqueos de búsqueda)
-        const cache = JSON.parse(localStorage.getItem('geocode_cache_v1') || '{}');
+        const cache = JSON.parse(localStorage.getItem('geocode_cache_v2') || '{}');
 
-        // Escuchar clics desde la app en React para hacer zoom
+        // Escuchar clics para hacer zoom
         window.addEventListener('message', function(event) {
            if(event.data && event.data.type === 'zoomTo') {
               const data = markersData[event.data.direccion];
@@ -82,13 +81,18 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
             
             let lat, lon;
             
+            // Truco para mejorar la puntería del buscador si la dirección es muy corta
+            let direccionBusqueda = p.direccion;
+            if (!direccionBusqueda.toLowerCase().includes('tucuman') && !direccionBusqueda.toLowerCase().includes('tucumán')) {
+               direccionBusqueda = direccionBusqueda + ', Tucumán, Argentina';
+            }
+            
             if (cache[p.direccion]) {
               lat = cache[p.direccion].lat;
               lon = cache[p.direccion].lon;
             } else {
               try {
-                // Búsqueda de coordenadas gratis
-                const query = encodeURIComponent(p.direccion);
+                const query = encodeURIComponent(direccionBusqueda);
                 const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + query);
                 const data = await res.json();
                 
@@ -100,7 +104,7 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
                 }
               } catch (e) { console.error('Error', p.nombre); }
               
-              // Pausa de 1 seg para no saturar el servidor gratis
+              // Pausa técnica
               await new Promise(r => setTimeout(r, 1200));
             }
 
@@ -118,12 +122,12 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
           }
           
           if (cacheUpdated) {
-            localStorage.setItem('geocode_cache_v1', JSON.stringify(cache));
+            localStorage.setItem('geocode_cache_v2', JSON.stringify(cache));
           }
 
-          // Ajustar cámara para que se vean todos
+          // Ajustar cámara para que se vean todos los pines centrados
           if (markersList.length > 0) {
-            map.fitBounds(markersList, { padding: [50, 50] });
+            map.fitBounds(markersList, { padding: [50, 50], maxZoom: 15 });
           }
         };
 

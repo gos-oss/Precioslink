@@ -4,12 +4,17 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Wallet, TrendingUp, Clock, Tag, Box, LayoutGrid, Plus, Map, User, CheckSquare, FileText, BadgeDollarSign } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Wallet, TrendingUp, Clock, Tag, Box, LayoutGrid, Plus, Map, User, CheckSquare, FileText, BadgeDollarSign, Users } from 'lucide-react'
 
 const getTodayDate = () => {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+
+const meses = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+]
 
 export default function ProyectoCalculadora({ params }: { params: { id: string } }) {
   const [proyecto, setProyecto] = useState<any>(null)
@@ -39,6 +44,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [filtroEstado, setFiltroEstado] = useState('todos')
 
   // Variables de FINANCIADOR
+  const [tipoOperacionFinanciador, setTipoOperacionFinanciador] = useState<'venta' | 'socio'>('venta') // NUEVO ESTADO DUAL
   const [unidadSeleccionada, setUnidadSeleccionada] = useState('')
   const [finPrecioVenta, setFinPrecioVenta] = useState(0)
   const [finAnticipoPct, setFinAnticipoPct] = useState(0.40)
@@ -48,10 +54,11 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [clienteNombre, setClienteNombre] = useState('')
   const [guardandoOperacion, setGuardandoOperacion] = useState(false)
 
-  // Variables de CTA CTE (Operaciones, Cuotas y Ajustes CAC)
+  // Variables de CTA CTE
   const [operaciones, setOperaciones] = useState<any[]>([])
   const [operacionSeleccionada, setOperacionSeleccionada] = useState<any>(null)
   const [cuotasOperacion, setCuotasOperacion] = useState<any[]>([])
+  const [indicesMacro, setIndicesMacro] = useState<any[]>([])
   const [porcentajeAjuste, setPorcentajeAjuste] = useState<number | ''>('')
   const [aplicandoAjuste, setAplicandoAjuste] = useState(false)
 
@@ -62,12 +69,13 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
   useEffect(() => {
     async function fetchData() {
-      const [resProyecto, resConfig, resHistorial, resUnidades, resOperaciones] = await Promise.all([
+      const [resProyecto, resConfig, resHistorial, resUnidades, resOperaciones, resIndices] = await Promise.all([
         supabase.from('proyectos').select('*').eq('id', params.id).single(),
         supabase.from('configuracion_global').select('*').eq('id', 1).single(),
         supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('fecha_referencia', { ascending: false }).limit(1),
         supabase.from('unidades').select('*').eq('id_proyecto', params.id).order('identificador', { ascending: true }),
-        supabase.from('si_operaciones').select('*, unidades(identificador)').eq('id_proyecto', params.id).order('fecha_operacion', { ascending: false })
+        supabase.from('si_operaciones').select('*, unidades(identificador)').eq('id_proyecto', params.id).order('fecha_operacion', { ascending: false }),
+        supabase.from('si_indices_macro').select('*').order('anio', { ascending: false }).order('mes', { ascending: false })
       ])
       
       if (resProyecto.data) {
@@ -93,6 +101,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
       if (resUnidades.data) setUnidades(resUnidades.data)
       if (resOperaciones.data) setOperaciones(resOperaciones.data)
+      if (resIndices.data) setIndicesMacro(resIndices.data)
     }
     fetchData()
   }, [params.id])
@@ -109,16 +118,18 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
         setResultados(res)
         
         if (!precioModificadoManual) {
-          if (unidadSeleccionada) {
+          if (tipoOperacionFinanciador === 'venta' && unidadSeleccionada) {
             const unidadElegida = unidades.find(u => u.id === unidadSeleccionada)
             if (unidadElegida) setFinPrecioVenta(Math.round(unidadElegida.superficie_m2 * res.precioSugeridoUSD))
+          } else if (tipoOperacionFinanciador === 'socio') {
+            setFinPrecioVenta(0) // El socio suele tener aportes muy variables, empezamos en 0 o dejamos lo manual
           } else {
             setFinPrecioVenta(Math.round(res.precioSugeridoUSD))
           }
         }
       } catch (error) { console.error(error) }
     }
-  }, [superficieVendible, costoDuroM2, valorTerrenoUSD, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos, pctAjuste, proyecto, configGlobal, unidadSeleccionada, unidades, precioModificadoManual])
+  }, [superficieVendible, costoDuroM2, valorTerrenoUSD, margenObjetivo, canjeTierra, canjeHonorarios, pctAdmin, pctImprevistos, pctAjuste, proyecto, configGlobal, unidadSeleccionada, unidades, precioModificadoManual, tipoOperacionFinanciador])
 
   const mostrarNotificacion = (mensaje: string, tipo: 'exito' | 'error' = 'exito') => {
     setNotificacion({ mostrar: true, mensaje, tipo })
@@ -206,14 +217,18 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     }
   }
 
-  // --- REGISTRO DE VENTA ---
-  async function registrarVenta() {
-    if (!unidadSeleccionada) {
+  // --- REGISTRO DE VENTA O APORTE SOCIETARIO ---
+  async function registrarOperacion() {
+    if (tipoOperacionFinanciador === 'venta' && !unidadSeleccionada) {
       mostrarNotificacion('Debes seleccionar una unidad específica', 'error')
       return
     }
     if (!clienteNombre.trim()) {
-      mostrarNotificacion('Ingresa el nombre del cliente', 'error')
+      mostrarNotificacion('Ingresa el nombre del cliente/socio', 'error')
+      return
+    }
+    if (finPrecioVenta <= 0) {
+      mostrarNotificacion('El monto debe ser mayor a cero', 'error')
       return
     }
 
@@ -225,16 +240,24 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     const totalFinanciado = saldoFinanciar + costoFinanciero;
     const cuotaBase = finCuotas > 0 ? (totalFinanciado / finCuotas) : 0;
 
-    const { data: operacionInsertada, error: errorOp } = await supabase.from('si_operaciones').insert({
+    const objetoAInsertar: any = {
       id_proyecto: proyecto.id,
-      id_unidad: unidadSeleccionada,
       cliente: clienteNombre,
       precio_total_usd: finPrecioVenta,
       anticipo_usd: anticipoUSD,
       saldo_financiado_usd: totalFinanciado,
       cantidad_cuotas: finCuotas,
-      tasa_interes_mensual: finTasa
-    }).select('*, unidades(identificador)').single()
+      tasa_interes_mensual: finTasa,
+      tipo_operacion: tipoOperacionFinanciador
+    }
+
+    if (tipoOperacionFinanciador === 'venta') {
+      objetoAInsertar.id_unidad = unidadSeleccionada
+    }
+
+    const { data: operacionInsertada, error: errorOp } = await supabase.from('si_operaciones')
+      .insert(objetoAInsertar)
+      .select('*, unidades(identificador)').single()
 
     if (errorOp || !operacionInsertada) {
       mostrarNotificacion('Error al registrar operación', 'error')
@@ -245,15 +268,19 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     const cuotasArray = [];
     const fechaVenta = new Date();
     
-    cuotasArray.push({
-      id_operacion: operacionInsertada.id,
-      numero_cuota: 0,
-      monto_usd: anticipoUSD,
-      fecha_vencimiento: fechaVenta.toISOString().split('T')[0],
-      estado: 'pagada',
-      fecha_pago: fechaVenta.toISOString().split('T')[0]
-    });
+    // Anticipo
+    if (anticipoUSD > 0) {
+      cuotasArray.push({
+        id_operacion: operacionInsertada.id,
+        numero_cuota: 0,
+        monto_usd: anticipoUSD,
+        fecha_vencimiento: fechaVenta.toISOString().split('T')[0],
+        estado: 'pagada',
+        fecha_pago: fechaVenta.toISOString().split('T')[0]
+      });
+    }
 
+    // Cuotas regulares
     for (let i = 1; i <= finCuotas; i++) {
        const fechaVencimiento = new Date(fechaVenta);
        fechaVencimiento.setMonth(fechaVencimiento.getMonth() + i);
@@ -271,18 +298,21 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       await supabase.from('si_cuotas').insert(cuotasArray);
     }
 
-    await supabase.from('unidades').update({ estado: 'vendida' }).eq('id', unidadSeleccionada)
+    // Si es Venta, cambiamos estado de la unidad
+    if (tipoOperacionFinanciador === 'venta') {
+      await supabase.from('unidades').update({ estado: 'vendida' }).eq('id', unidadSeleccionada)
+      setUnidades(unidades.map(u => u.id === unidadSeleccionada ? { ...u, estado: 'vendida' } : u))
+    }
 
-    setUnidades(unidades.map(u => u.id === unidadSeleccionada ? { ...u, estado: 'vendida' } : u))
     setOperaciones([operacionInsertada, ...operaciones])
     setUnidadSeleccionada('')
     setClienteNombre('')
-    mostrarNotificacion('¡Operación y Plan de Pagos registrados!')
+    mostrarNotificacion(tipoOperacionFinanciador === 'venta' ? '¡Venta registrada con éxito!' : '¡Aporte de Socio registrado!')
     setGuardandoOperacion(false)
     setActiveTab('CTA_CTE')
   }
 
-  // --- CTA CTE: CARGAR CUOTAS Y AJUSTE DE ÍNDICE ---
+  // --- CTA CTE: CARGAR CUOTAS Y AJUSTE INTELIGENTE ---
   async function cargarEstadoCuenta(op: any) {
     if (operacionSeleccionada?.id === op.id) {
       setOperacionSeleccionada(null)
@@ -292,7 +322,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     const { data } = await supabase.from('si_cuotas').select('*').eq('id_operacion', op.id).order('numero_cuota', { ascending: true });
     setCuotasOperacion(data || []);
     setOperacionSeleccionada(op);
-    setPorcentajeAjuste(''); // Reiniciamos el input
+    setPorcentajeAjuste('');
   }
 
   async function registrarPagoCuota(idCuota: string) {
@@ -304,7 +334,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     }
   }
 
-  // LA MAGIA: ACTUALIZACIÓN DE CUOTAS POR ÍNDICE (CAC / HORMIGÓN)
   async function aplicarAjusteCAC() {
     if (!operacionSeleccionada || Number(porcentajeAjuste) <= 0) return;
     setAplicandoAjuste(true);
@@ -348,7 +377,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const valorInventario = resultados ? Math.round(m2Disponibles * resultados.precioSugeridoUSD) : 0;
   const unidadesFiltradas = filtroEstado === 'todos' ? unidades : unidades.filter(u => u.estado === filtroEstado);
 
-  // Cálculos en tiempo real del Estado de Cuenta
   const totalPagado = cuotasOperacion.filter(c => c.estado === 'pagada').reduce((acc, c) => acc + Number(c.monto_usd), 0);
   const totalPendiente = cuotasOperacion.filter(c => c.estado === 'pendiente').reduce((acc, c) => acc + Number(c.monto_usd), 0);
 
@@ -416,7 +444,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </button>
         </div>
 
+        {/* ==================================================== */}
         {/* PESTAÑA: PRECIOS */}
+        {/* ==================================================== */}
         {activeTab === 'PRECIOS' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8 space-y-8">
@@ -515,7 +545,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
+        {/* ==================================================== */}
         {/* PESTAÑA: STOCK */}
+        {/* ==================================================== */}
         {activeTab === 'STOCK' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-4 space-y-8">
@@ -604,47 +636,73 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
-        {/* PESTAÑA: FINANCIADOR */}
+        {/* ==================================================== */}
+        {/* PESTAÑA: FINANCIADOR CON MÓDULO PARA SOCIOS/VENTAS */}
+        {/* ==================================================== */}
         {activeTab === 'FINANCIADOR' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8 bg-white p-8 rounded-2xl shadow-sm border border-stone-200">
               <div className="flex items-center justify-between mb-8 pb-4 border-b border-stone-100">
                 <h2 className="text-sm font-bold text-slate-800 flex items-center uppercase tracking-widest">
-                  <Calculator className="w-5 h-5 mr-3 text-amber-500" /> Simulador de Venta a Cliente
+                  <Calculator className="w-5 h-5 mr-3 text-amber-500" /> Registro de Operaciones
                 </h2>
+                
+                {/* SELECTOR DE TIPO DE OPERACIÓN (NUEVO) */}
+                <div className="flex bg-stone-100 rounded-lg p-1 border border-stone-200">
+                  <button 
+                    onClick={() => setTipoOperacionFinanciador('venta')}
+                    className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${tipoOperacionFinanciador === 'venta' ? 'bg-white text-amber-600 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
+                  >
+                    Venta de Unidad
+                  </button>
+                  <button 
+                    onClick={() => { setTipoOperacionFinanciador('socio'); setUnidadSeleccionada(''); setFinPrecioVenta(0); }}
+                    className={`px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-md transition-all ${tipoOperacionFinanciador === 'socio' ? 'bg-white text-emerald-600 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
+                  >
+                    Aporte de Socio
+                  </button>
+                </div>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8 mb-8">
-                <div className="col-span-1 md:col-span-2 bg-stone-50 p-6 rounded-2xl border border-stone-200">
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-slate-600 mb-3 flex items-center"><Box className="w-4 h-4 mr-2 text-amber-500" /> 1. Elegir Unidad a Vender</label>
-                  <select 
-                    value={unidadSeleccionada}
-                    onChange={(e) => {
-                      const idUnidad = e.target.value;
-                      setUnidadSeleccionada(idUnidad);
-                      setPrecioModificadoManual(false); 
-                      if (idUnidad && resultados) {
-                        const unidadElegida = unidades.find(u => u.id === idUnidad);
-                        if (unidadElegida) setFinPrecioVenta(Math.round(unidadElegida.superficie_m2 * resultados.precioSugeridoUSD));
-                      } else if (resultados) {
-                        setFinPrecioVenta(Math.round(resultados.precioSugeridoUSD));
-                      }
-                    }}
-                    className="w-full rounded-xl border-0 bg-white px-5 py-4 text-slate-900 shadow-sm ring-1 ring-inset ring-stone-200 focus:ring-2 focus:ring-amber-500 transition-all font-bold text-lg cursor-pointer"
-                  >
-                    <option value="">-- Cotización Manual / Genérica --</option>
-                    {unidades.filter(u => u.estado === 'disponible').map(u => (
-                      <option key={u.id} value={u.id}>Unidad {u.identificador} ({u.superficie_m2} m²)</option>
-                    ))}
-                  </select>
-                </div>
+                {tipoOperacionFinanciador === 'venta' && (
+                  <div className="col-span-1 md:col-span-2 bg-stone-50 p-6 rounded-2xl border border-stone-200">
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-slate-600 mb-3 flex items-center"><Box className="w-4 h-4 mr-2 text-amber-500" /> 1. Elegir Unidad a Vender</label>
+                    <select 
+                      value={unidadSeleccionada}
+                      onChange={(e) => {
+                        const idUnidad = e.target.value;
+                        setUnidadSeleccionada(idUnidad);
+                        setPrecioModificadoManual(false); 
+                        if (idUnidad && resultados) {
+                          const unidadElegida = unidades.find(u => u.id === idUnidad);
+                          if (unidadElegida) setFinPrecioVenta(Math.round(unidadElegida.superficie_m2 * resultados.precioSugeridoUSD));
+                        } else if (resultados) {
+                          setFinPrecioVenta(Math.round(resultados.precioSugeridoUSD));
+                        }
+                      }}
+                      className="w-full rounded-xl border-0 bg-white px-5 py-4 text-slate-900 shadow-sm ring-1 ring-inset ring-stone-200 focus:ring-2 focus:ring-amber-500 transition-all font-bold text-lg cursor-pointer"
+                    >
+                      <option value="">-- Cotización Manual / Genérica --</option>
+                      {unidades.filter(u => u.estado === 'disponible').map(u => (
+                        <option key={u.id} value={u.id}>Unidad {u.identificador} ({u.superficie_m2} m²)</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div className="col-span-1 md:col-span-2">
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-slate-500 mb-3 flex items-center"><DollarSign className="w-4 h-4 mr-2 text-stone-400" /> 2. Valor de Venta (Contado USD)</label>
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-slate-500 mb-3 flex items-center">
+                    <DollarSign className="w-4 h-4 mr-2 text-stone-400" /> 
+                    {tipoOperacionFinanciador === 'venta' ? '2. Valor de Venta (Contado USD)' : '1. Capital Total a Aportar (USD)'}
+                  </label>
                   <input type="number" value={finPrecioVenta} onChange={(e) => { setFinPrecioVenta(Number(e.target.value)); setPrecioModificadoManual(true); }} className="w-full rounded-xl border-0 bg-white px-5 py-4 text-slate-900 shadow-sm ring-1 ring-inset ring-stone-200 focus:ring-2 focus:ring-inset focus:ring-amber-500 transition-all font-black text-2xl" />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-widest text-slate-500 mb-3 flex items-center"><Percent className="w-4 h-4 mr-2 text-stone-400" /> Anticipo Requerido</label>
+                  <label className="block text-[11px] font-bold uppercase tracking-widest text-slate-500 mb-3 flex items-center">
+                    <Percent className="w-4 h-4 mr-2 text-stone-400" /> 
+                    {tipoOperacionFinanciador === 'venta' ? 'Anticipo Requerido' : 'Aporte Inicial'}
+                  </label>
                   <input type="number" step="0.01" value={finAnticipoPct} onChange={(e) => setFinAnticipoPct(Number(e.target.value))} className="w-full rounded-xl border-0 bg-stone-50 px-4 py-3 text-slate-900 shadow-sm ring-1 ring-inset ring-stone-200 focus:ring-2 focus:ring-inset focus:ring-amber-500 transition-all font-semibold" />
                 </div>
                 <div>
@@ -672,7 +730,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                       </thead>
                       <tbody>
                         <tr className="border-b border-stone-100 hover:bg-stone-50 transition-colors">
-                          <td className="py-3 px-4 text-xs font-bold text-slate-900">0 (Anticipo)</td>
+                          <td className="py-3 px-4 text-xs font-bold text-slate-900">0 ({tipoOperacionFinanciador === 'venta' ? 'Anticipo' : 'Aporte Inicial'})</td>
                           <td className="py-3 px-4 text-xs text-slate-500 text-right">-</td>
                           <td className="py-3 px-4 text-xs text-slate-500 text-right">-</td>
                           <td className="py-3 px-4 text-sm font-black text-emerald-600 text-right">${Math.round(finPrecioVenta * finAnticipoPct).toLocaleString()}</td>
@@ -699,35 +757,35 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                   <Wallet className="w-4 h-4 mr-2" /> Plan Sugerido
                 </h2>
                 <div className="bg-slate-800/50 p-5 rounded-2xl font-mono text-[13px] text-slate-200 border border-slate-700 relative z-10">
-                  <div className="flex justify-between mb-2"><span>Precio Contado</span><span>${Math.round(finPrecioVenta).toLocaleString()}</span></div>
-                  <div className="flex justify-between mb-2"><span>Anticipo ({Math.round(finAnticipoPct*100)}%)</span><span>${Math.round(finPrecioVenta * finAnticipoPct).toLocaleString()}</span></div>
+                  <div className="flex justify-between mb-2"><span>Capital Total</span><span>${Math.round(finPrecioVenta).toLocaleString()}</span></div>
+                  <div className="flex justify-between mb-2"><span>Inicial ({Math.round(finAnticipoPct*100)}%)</span><span>${Math.round(finPrecioVenta * finAnticipoPct).toLocaleString()}</span></div>
                   <div className="flex justify-between mb-4 border-b border-slate-700 pb-2"><span>Saldo a Financiar</span><span>${Math.round(finPrecioVenta - (finPrecioVenta * finAnticipoPct)).toLocaleString()}</span></div>
                   <div className="flex justify-between mb-2 text-rose-400"><span>Costo Financiero</span><span>+ ${Math.round((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * finTasa * finCuotas).toLocaleString()}</span></div>
                   <div className="flex justify-between text-white font-bold bg-slate-950 -mx-5 p-4 mt-4 border-t border-slate-700">
-                    <span>PRECIO FINANCIADO</span><span>${Math.round(finPrecioVenta + ((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * finTasa * finCuotas)).toLocaleString()}</span>
+                    <span>TOTAL OPERACIÓN</span><span>${Math.round(finPrecioVenta + ((finPrecioVenta - (finPrecioVenta * finAnticipoPct)) * finTasa * finCuotas)).toLocaleString()}</span>
                   </div>
                 </div>
               </div>
 
-              {unidadSeleccionada && (
+              {(unidadSeleccionada || tipoOperacionFinanciador === 'socio') && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
                   <h3 className="text-xs font-bold text-slate-800 uppercase tracking-widest mb-4 flex items-center relative z-10">
                     <CheckSquare className="w-4 h-4 mr-2 text-amber-500" /> Cierre de Operación
                   </h3>
                   <div className="relative z-10">
-                    <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Nombre del Cliente</label>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-2">Nombre del {tipoOperacionFinanciador === 'venta' ? 'Cliente' : 'Socio / Inversor'}</label>
                     <div className="relative mb-4">
                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <User className="h-4 w-4 text-stone-400" />
+                        {tipoOperacionFinanciador === 'venta' ? <User className="h-4 w-4 text-stone-400" /> : <Users className="h-4 w-4 text-emerald-500" />}
                       </div>
                       <input 
                         type="text" placeholder="Ej: Juan Pérez" value={clienteNombre} onChange={e => setClienteNombre(e.target.value)}
                         className="w-full pl-10 bg-stone-50 border border-stone-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 outline-none transition-all"
                       />
                     </div>
-                    <button onClick={registrarVenta} disabled={guardandoOperacion} className="w-full flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md active:scale-95">
-                      {guardandoOperacion ? 'Registrando...' : 'Confirmar Venta y Generar Cuotas'}
+                    <button onClick={registrarOperacion} disabled={guardandoOperacion} className={`w-full flex items-center justify-center font-bold py-3 px-4 rounded-xl transition-all shadow-md active:scale-95 text-white ${tipoOperacionFinanciador === 'venta' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                      {guardandoOperacion ? 'Registrando...' : (tipoOperacionFinanciador === 'venta' ? 'Confirmar Venta y Generar Cuotas' : 'Confirmar Aporte Societario')}
                     </button>
                   </div>
                 </div>
@@ -736,13 +794,15 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
-        {/* PESTAÑA: CUENTAS CORRIENTES (COBRANZAS) + ACTUALIZACIÓN CAC */}
+        {/* ==================================================== */}
+        {/* PESTAÑA: CUENTAS CORRIENTES (COBRANZAS) */}
+        {/* ==================================================== */}
         {activeTab === 'CTA_CTE' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-4 space-y-4">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
                 <h2 className="text-sm font-bold text-slate-800 flex items-center uppercase tracking-widest mb-4">
-                  <User className="w-5 h-5 mr-3 text-emerald-600" /> Clientes
+                  <User className="w-5 h-5 mr-3 text-emerald-600" /> Clientes y Socios
                 </h2>
                 
                 {operaciones.length === 0 ? (
@@ -759,8 +819,8 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                       >
                         <div className="flex justify-between items-start mb-1">
                           <h3 className="font-bold text-sm text-slate-800">{op.cliente}</h3>
-                          <span className="bg-slate-800 text-white text-[10px] font-bold px-2 py-1 rounded">
-                            Unidad {op.unidades?.identificador}
+                          <span className={`text-[10px] font-bold px-2 py-1 rounded text-white ${op.tipo_operacion === 'socio' ? 'bg-emerald-600' : 'bg-slate-800'}`}>
+                            {op.tipo_operacion === 'socio' ? 'Aporte de Socio' : `Unidad ${op.unidades?.identificador}`}
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 font-medium">{op.forma_pago}</p>
@@ -776,8 +836,13 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                 <div className="bg-white p-8 rounded-2xl shadow-sm border border-stone-200">
                   <div className="flex justify-between items-center border-b border-stone-100 pb-4 mb-6">
                     <div>
-                      <h2 className="text-xl font-black text-slate-800">{operacionSeleccionada.cliente}</h2>
-                      <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Unidad {operacionSeleccionada.unidades?.identificador} • {operacionSeleccionada.cantidad_cuotas} Cuotas</p>
+                      <h2 className="text-xl font-black text-slate-800 flex items-center">
+                        {operacionSeleccionada.cliente} 
+                        {operacionSeleccionada.tipo_operacion === 'socio' && <Users className="w-5 h-5 ml-3 text-emerald-500"/>}
+                      </h2>
+                      <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
+                        {operacionSeleccionada.tipo_operacion === 'socio' ? 'Aporte Societario' : `Unidad ${operacionSeleccionada.unidades?.identificador}`} • {operacionSeleccionada.cantidad_cuotas} Cuotas
+                      </p>
                     </div>
                     <div className="flex gap-6 text-right">
                        <div>
@@ -791,29 +856,35 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                     </div>
                   </div>
 
-                  {/* MOTOR DE AJUSTE CAC / HORMIGÓN */}
                   <div className="flex flex-col md:flex-row justify-between items-center bg-amber-50 p-4 rounded-xl border border-amber-200 mb-6">
                     <div className="flex items-center mb-3 md:mb-0">
                       <TrendingUp className="w-5 h-5 text-amber-600 mr-3" />
                       <div>
-                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-widest">Ajuste de Saldos (CAC / Hormigón)</h4>
-                        <p className="text-[10px] text-slate-600 mt-0.5">Aplica un % de incremento a todas las cuotas <strong>pendientes</strong>.</p>
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-widest">Aplicar Ajuste sobre Saldo</h4>
+                        <p className="text-[10px] text-slate-600 mt-0.5">Selecciona el índice oficial del período para ajustar las cuotas <strong>pendientes</strong>.</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="relative">
-                        <input 
-                          type="number" step="0.1" value={porcentajeAjuste} onChange={(e) => setPorcentajeAjuste(e.target.value !== '' ? Number(e.target.value) : '')}
-                          placeholder="Ej: 4.5"
-                          className="w-24 pl-3 pr-8 py-2 text-sm font-bold text-slate-900 bg-white border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none"
-                        />
-                        <span className="absolute right-3 top-2.5 text-xs font-bold text-slate-400">%</span>
+                        <select 
+                          value={porcentajeAjuste} 
+                          onChange={(e) => setPorcentajeAjuste(e.target.value !== '' ? Number(e.target.value) : '')}
+                          className="w-48 pl-3 pr-8 py-2 text-xs font-bold text-slate-900 bg-white border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none truncate"
+                        >
+                          <option value="">Seleccione índice...</option>
+                          {indicesMacro.map(idx => (
+                            <optgroup key={idx.id} label={`${meses[idx.mes - 1]} ${idx.anio}`}>
+                              <option value={idx.variacion_cac_pct}>CAC: +{idx.variacion_cac_pct}%</option>
+                              <option value={idx.variacion_hormigon_pct}>Hormigón: +{idx.variacion_hormigon_pct}%</option>
+                            </optgroup>
+                          ))}
+                        </select>
                       </div>
                       <button 
-                        onClick={aplicarAjusteCAC} disabled={aplicandoAjuste || Number(porcentajeAjuste) <= 0}
-                        className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-sm ${aplicandoAjuste || Number(porcentajeAjuste) <= 0 ? 'bg-amber-200 text-amber-500' : 'bg-amber-500 hover:bg-amber-600 text-white active:scale-95'}`}
+                        onClick={aplicarAjusteCAC} disabled={aplicandoAjuste || porcentajeAjuste === '' || Number(porcentajeAjuste) <= 0}
+                        className={`px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-sm ${aplicandoAjuste || porcentajeAjuste === '' || Number(porcentajeAjuste) <= 0 ? 'bg-amber-200 text-amber-500' : 'bg-amber-500 hover:bg-amber-600 text-white active:scale-95'}`}
                       >
-                        {aplicandoAjuste ? 'Cargando...' : 'Ajustar'}
+                        {aplicandoAjuste ? 'Cargando...' : 'Aplicar'}
                       </button>
                     </div>
                   </div>
@@ -833,7 +904,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                           <tr key={cuota.id} className={`border-b border-stone-100 transition-colors ${cuota.estado === 'pagada' ? 'bg-emerald-50/50' : 'hover:bg-stone-50'}`}>
                             <td className="py-3 px-4">
                               <span className="text-xs font-bold text-slate-800">
-                                {cuota.numero_cuota === 0 ? 'Anticipo' : `Cuota ${cuota.numero_cuota}`}
+                                {cuota.numero_cuota === 0 ? (operacionSeleccionada.tipo_operacion === 'socio' ? 'Aporte Inicial' : 'Anticipo') : `Cuota ${cuota.numero_cuota}`}
                               </span>
                             </td>
                             <td className="py-3 px-4 text-xs font-medium text-slate-500">
@@ -865,14 +936,16 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
               ) : (
                 <div className="bg-stone-100 rounded-2xl border-2 border-dashed border-stone-200 h-full min-h-[400px] flex flex-col items-center justify-center">
                   <FileText className="w-12 h-12 text-stone-300 mb-4" />
-                  <p className="text-stone-500 font-medium text-sm">Selecciona un cliente de la lista para ver su Estado de Cuenta.</p>
+                  <p className="text-stone-500 font-medium text-sm">Selecciona un cliente o socio de la lista para ver su Estado de Cuenta.</p>
                 </div>
               )}
             </div>
           </div>
         )}
 
+        {/* ==================================================== */}
         {/* PESTAÑA: UBICACIÓN */}
+        {/* ==================================================== */}
         {activeTab === 'UBICACION' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-4 space-y-8">

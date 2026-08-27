@@ -3,23 +3,21 @@
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import Link from 'next/link'
-import { Settings, Building2, DollarSign, Activity, BarChart3, Briefcase, MapPin, Map, PieChart as PieChartIcon, Box, AlertTriangle, Wallet } from 'lucide-react'
+import { Settings, Building2, DollarSign, Activity, BarChart3, Briefcase, MapPin, Map, PieChart as PieChartIcon, Box, AlertTriangle, Wallet, CalendarDays, ChevronRight } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts'
-
-const gradients = [
-  'from-slate-700 to-slate-900',
-  'from-emerald-700 to-teal-900',
-  'from-amber-600 to-amber-800',
-  'from-red-800 to-rose-950',
-  'from-slate-600 to-slate-800',
-  'from-stone-600 to-stone-900'
-]
 
 const COLORS = ['#f59e0b', '#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#14b8a6', '#ec4899', '#0ea5e9'];
 
+const meses = [
+  { val: 1, label: 'Ene' }, { val: 2, label: 'Feb' }, { val: 3, label: 'Mar' },
+  { val: 4, label: 'Abr' }, { val: 5, label: 'May' }, { val: 6, label: 'Jun' },
+  { val: 7, label: 'Jul' }, { val: 8, label: 'Ago' }, { val: 9, label: 'Sep' },
+  { val: 10, label: 'Oct' }, { val: 11, label: 'Nov' }, { val: 12, label: 'Dic' }
+]
+const anios = [2024, 2025, 2026, 2027, 2028, 2029, 2030]
+
 const generarMapaHTML = (proyectosFiltrados: any[]) => {
   const proyectosStr = JSON.stringify(proyectosFiltrados);
-  
   return `
     <!DOCTYPE html>
     <html>
@@ -73,7 +71,6 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
 
           for (const p of proyectos) {
             if (!p.direccion) continue;
-            
             let lat, lon;
             let direccionBusqueda = p.direccion;
             if (!direccionBusqueda.toLowerCase().includes('tucuman') && !direccionBusqueda.toLowerCase().includes('tucumán')) {
@@ -88,7 +85,6 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
                 const query = encodeURIComponent(direccionBusqueda);
                 const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + query);
                 const data = await res.json();
-                
                 if (data && data.length > 0) {
                   lat = parseFloat(data[0].lat);
                   lon = parseFloat(data[0].lon);
@@ -112,15 +108,9 @@ const generarMapaHTML = (proyectosFiltrados: any[]) => {
             }
           }
           
-          if (cacheUpdated) {
-            localStorage.setItem('geocode_cache_v2', JSON.stringify(cache));
-          }
-
-          if (markersList.length > 0) {
-            map.fitBounds(markersList, { padding: [50, 50], maxZoom: 15 });
-          }
+          if (cacheUpdated) localStorage.setItem('geocode_cache_v2', JSON.stringify(cache));
+          if (markersList.length > 0) map.fitBounds(markersList, { padding: [50, 50], maxZoom: 15 });
         };
-
         procesarPines();
       </script>
     </body>
@@ -132,19 +122,34 @@ export default function Home() {
   const [proyectos, setProyectos] = useState<any[]>([])
   const [historial, setHistorial] = useState<any[]>([])
   const [resumenPrecios, setResumenPrecios] = useState<any[]>([])
+  const [ventas, setVentas] = useState<any[]>([])
   const [cargando, setCargando] = useState(true)
   
   const [proyectoSeleccionadoId, setProyectoSeleccionadoId] = useState<string>('todos')
+  const [mapaActivo, setMapaActivo] = useState<string>('San Miguel de Tucumán, Argentina')
   const [proyectoActivoMapa, setProyectoActivoMapa] = useState<string>('')
+
+  // Estados para el Filtro de Ventas
+  const currentDate = new Date()
+  const [filtroMes, setFiltroMes] = useState(currentDate.getMonth() + 1)
+  const [filtroAnio, setFiltroAnio] = useState(currentDate.getFullYear())
 
   useEffect(() => {
     async function fetchData() {
       const { data: dataProyectos } = await supabase.from('proyectos').select('*').order('nombre', { ascending: true })
       const { data: dataHistorial } = await supabase.from('historial_versiones_proyecto').select('*, proyectos(nombre)').order('fecha_referencia', { ascending: true })
       const { data: dataUnidades } = await supabase.from('unidades').select('*')
+      const { data: dataVentas } = await supabase.from('ventas').select('*') // Consultamos ventas
+
+      if (dataVentas) setVentas(dataVentas)
 
       if (dataProyectos) {
         setProyectos(dataProyectos)
+        const primerConDireccion = dataProyectos.find(p => p.direccion)
+        if (primerConDireccion) {
+          setMapaActivo(primerConDireccion.direccion)
+          setProyectoActivoMapa(primerConDireccion.id)
+        }
       }
 
       if (dataHistorial) {
@@ -216,6 +221,14 @@ export default function Home() {
     }
   }, [historial, proyectoSeleccionadoId]);
 
+  // CALCULO DE VENTAS POR PERIODO SELECCIONADO
+  const totalVentasPeriodo = useMemo(() => {
+    return ventas.filter(v => {
+      const fecha = new Date(v.fecha_venta);
+      return (fecha.getMonth() + 1) === filtroMes && fecha.getFullYear() === filtroAnio;
+    }).reduce((acc, v) => acc + Number(v.precio_venta), 0);
+  }, [ventas, filtroMes, filtroAnio]);
+
   const enfocarProyectoEnMapa = (id: string, direccion: string) => {
     setProyectoActivoMapa(id);
     const iframe = document.getElementById('mapa-global') as HTMLIFrameElement;
@@ -247,301 +260,41 @@ export default function Home() {
   const formatTooltipPie = (value: number) => [`$${value.toLocaleString()} USD`, 'Valor Inventario'];
 
   return (
-    <main className="min-h-screen bg-stone-50 p-4 md:p-8 font-sans text-slate-900 selection:bg-amber-100">
-      <div className="max-w-7xl mx-auto space-y-8">
-        
-        {/* ENCABEZADO LINK CON EL BANNER */}
-        <div className="bg-slate-950 rounded-xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-center border-b-4 border-amber-500 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-slate-800/20 rounded-full blur-3xl pointer-events-none"></div>
-          
-          <div className="relative z-10 flex items-center gap-6 w-full md:w-auto">
-            <div className="flex-shrink-0 shadow-2xl flex items-center justify-center h-20 md:h-24 overflow-hidden rounded-lg border border-slate-700/50 bg-black">
-              <img 
-                src="/link-banner.png" 
-                alt="Banner LINK" 
-                className="h-full w-auto object-cover"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                  e.currentTarget.parentElement!.innerHTML = '<span class="text-white font-black text-2xl px-8">LINK</span>';
-                }}
-              />
-            </div>
-            <div className="hidden lg:block border-l border-slate-700 pl-6">
-              <h1 className="text-2xl font-serif font-bold text-white tracking-tight">Comercialink Dashboard</h1>
-              <p className="text-slate-400 mt-1 font-medium tracking-wide text-xs uppercase">Intelligence & Pricing</p>
-            </div>
-          </div>
-          
-          <div className="relative z-10 mt-6 md:mt-0 flex flex-wrap items-center gap-3">
-            <Link href="/reporte" className="flex items-center bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-lg border border-slate-700 transition-all font-bold text-sm active:scale-95 shadow-md">
-              <BarChart3 className="w-4 h-4 mr-2 text-amber-500" /> Generar Reporte
-            </Link>
-            <Link href="/configuracion" className="flex items-center bg-transparent hover:bg-white/5 text-slate-300 px-6 py-3 rounded-lg border border-slate-700 transition-all font-medium text-sm active:scale-95">
-              <Settings className="w-4 h-4 mr-2" /> Parámetros
-            </Link>
+    <div className="flex h-screen bg-stone-50 overflow-hidden font-sans selection:bg-amber-100">
+      
+      {/* SIDEBAR (Menú Lateral) */}
+      <aside className="w-80 bg-slate-950 border-r border-slate-800 flex-shrink-0 flex flex-col hidden lg:flex">
+        {/* Header del Sidebar con el Banner */}
+        <div className="p-6 border-b border-slate-800/80">
+          <div className="flex items-center justify-center h-20 overflow-hidden rounded-lg border border-slate-700/50 bg-black">
+            <img 
+              src="/link-banner.png" 
+              alt="Banner LINK" 
+              className="h-full w-auto object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+                e.currentTarget.parentElement!.innerHTML = '<span class="text-white font-black text-2xl px-8">LINK</span>';
+              }}
+            />
           </div>
         </div>
 
-        <div className="pt-2">
-          <h2 className="text-3xl font-serif font-bold text-slate-900 mb-6 tracking-tight">Resumen</h2>
-        </div>
-
-        {/* KPIs SUPERIORES */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-stone-200 flex justify-between items-start transition-transform hover:-translate-y-1 duration-300">
-            <div>
-              <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest mb-3">Total Proyectos</p>
-              <div className="flex items-baseline">
-                <p className="text-4xl font-bold text-slate-800 font-serif">{proyectos.length}</p>
-                <span className="text-xl text-slate-800 font-serif ml-2">activos</span>
-              </div>
-            </div>
-            <div className="bg-stone-100 p-3 rounded-lg">
-              <Briefcase className="w-5 h-5 text-slate-600" />
-            </div>
-          </div>
-          
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-stone-200 flex justify-between items-start transition-transform hover:-translate-y-1 duration-300">
-            <div>
-              <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest mb-3">Promedio Portafolio</p>
-              <div className="flex items-baseline text-emerald-700">
-                <span className="text-xl font-serif mr-2">$</span>
-                <p className="text-4xl font-bold font-serif">{precioPromedioPortafolio.toLocaleString()}</p>
-              </div>
-            </div>
-            <div className="bg-emerald-50 p-3 rounded-lg">
-              <Wallet className="w-5 h-5 text-emerald-700" />
-            </div>
-          </div>
-
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-stone-200 flex justify-between items-start transition-transform hover:-translate-y-1 duration-300">
-            <div>
-              <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest mb-3">Inventario Disponible</p>
-              <div className="flex items-baseline text-red-800">
-                <span className="text-xl font-serif mr-2">$</span>
-                <p className="text-4xl font-bold font-serif">{valorTotalInventario.toLocaleString()}</p>
-              </div>
-              <div className="mt-3 inline-flex items-center bg-red-50 px-2 py-1 rounded border border-red-100">
-                 <Box className="w-3 h-3 text-red-600 mr-1" />
-                 <span className="text-[11px] font-bold text-red-700 uppercase tracking-wider">{m2TotalesDisponibles.toLocaleString('es-AR')} m² libres</span>
-              </div>
-            </div>
-            <div className="bg-red-50 p-3 rounded-lg">
-              <AlertTriangle className="w-5 h-5 text-red-800" />
-            </div>
-          </div>
-        </div>
-
-        {/* GRID DE PANELES CENTRALES */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pt-4">
-          
-          <div className="bg-slate-900 p-8 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
-            <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Ranking Precios (USD/m²)</h2>
-            <div className="h-72 w-full relative z-10">
-              {resumenPrecios.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={resumenPrecios} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" />
-                    <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis dataKey="nombre" type="category" width={90} tick={{ fill: '#f8fafc', fontSize: 11, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                    <RechartsTooltip cursor={{ fill: '#1e293b' }} contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }} />
-                    <Bar dataKey="ultimoPrecioUSD" fill="#0f766e" radius={[0, 4, 4, 0]} name="Precio USD/m²" barSize={24} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin datos.</div>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-slate-900 p-8 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
-            <div className="flex items-center justify-between mb-6 relative z-10">
-              <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Evolución Histórica</h2>
-              <select 
-                value={proyectoSeleccionadoId} 
-                onChange={(e) => setProyectoSeleccionadoId(e.target.value)}
-                className="bg-slate-800 border border-slate-700 text-slate-200 text-[10px] font-bold uppercase rounded p-1 outline-none focus:ring-1 focus:ring-amber-500 cursor-pointer"
-              >
-                <option value="todos">Promedio Global</option>
-                {proyectos.map(p => (
-                  <option key={p.id} value={p.id}>{p.nombre}</option>
-                ))}
-              </select>
-            </div>
-            <div className="h-72 w-full relative z-10">
-               {datosGraficoLinea.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={datosGraficoLinea} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorPrecio" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#d97706" stopOpacity={0.4}/>
-                        <stop offset="95%" stopColor="#d97706" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                    <XAxis dataKey="fecha" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} dy={10} />
-                    <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} domain={['auto', 'auto']} axisLine={false} tickLine={false} />
-                    <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} labelStyle={{ color: '#94a3b8', marginBottom: '4px' }} itemStyle={{ color: '#d97706', fontWeight: 'bold' }} />
-                    <Area type="monotone" dataKey="resultado_precio_promedio_usd" stroke="#d97706" strokeWidth={3} fillOpacity={1} fill="url(#colorPrecio)" activeDot={{ r: 6, strokeWidth: 0, fill: '#d97706' }} name="Precio USD/m²" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin historial para este proyecto.</div>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-slate-900 p-8 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
-            <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">
-              <PieChartIcon className="w-4 h-4 mr-2" /> Participación de Inventario
-            </h2>
-            <div className="h-72 w-full relative z-10">
-              {datosTorta.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={datosTorta}
-                      dataKey="valorInventario"
-                      nameKey="nombre"
-                      cx="50%"
-                      cy="45%"
-                      innerRadius={65}
-                      outerRadius={90}
-                      paddingAngle={2}
-                      stroke="none"
-                    >
-                      {datosTorta.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip 
-                      formatter={formatTooltipPie}
-                      contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} 
-                      itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
-                    />
-                    <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', color: '#94a3b8' }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin inventario disponible para mostrar.</div>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-slate-900 p-8 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
-            <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Detalle Actual</h2>
-            <div className="h-72 w-full relative z-10 overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin', scrollbarColor: '#475569 transparent' }}>
-              <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 bg-slate-900 z-20">
-                  <tr className="border-b border-slate-700">
-                    <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Proyecto</th>
-                    <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Inv. (USD)</th>
-                    <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Stock (m²)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resumenPrecios.map((item, i) => (
-                    <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/50 transition-colors">
-                      <td className="py-3 text-xs font-bold text-slate-200">{item.nombre}</td>
-                      <td className="py-3 text-xs font-medium text-amber-500 text-center">${item.valorInventario.toLocaleString()}</td>
-                      <td className="py-3 text-xs font-medium text-slate-400 text-center">{Math.round(item.m2Disponibles).toLocaleString('es-AR')} m²</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {resumenPrecios.length === 0 && (
-                <div className="h-full flex items-center justify-center text-slate-600 text-sm italic mt-10">Sin datos.</div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* MAPA INTERACTIVO GLOBAL MULTI-PIN */}
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-stone-200 mt-4">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-xl font-serif font-bold text-slate-900 flex items-center tracking-tight">
-              <MapPin className="w-5 h-5 mr-3 text-slate-600" /> Mapa de Desarrollos
-            </h2>
-          </div>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[500px]">
-            <div className="lg:col-span-4 overflow-y-auto pr-2 space-y-3" style={{ scrollbarWidth: 'thin', scrollbarColor: '#d6d3d1 transparent' }}>
-              {proyectosConDireccion.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-stone-500 text-sm italic text-center p-6 border-2 border-dashed border-stone-200 rounded-xl">
-                  Aún no has agregado direcciones a tus proyectos. Ve a la pestaña "Ubicación" dentro de un proyecto para agregarlas.
-                </div>
-              ) : (
-                proyectosConDireccion.map((item) => (
-                  <div 
-                    key={item.id} 
-                    onClick={() => enfocarProyectoEnMapa(item.id, item.direccion)}
-                    className={`p-4 rounded-xl border cursor-pointer transition-all ${proyectoActivoMapa === item.id ? 'bg-slate-50 border-slate-300 shadow-sm' : 'bg-white border-stone-100 hover:border-stone-300'}`}
-                  >
-                    <h3 className={`font-bold text-sm ${proyectoActivoMapa === item.id ? 'text-slate-900' : 'text-slate-600'}`}>{item.nombre}</h3>
-                    <p className="text-xs text-stone-500 mt-1 line-clamp-1 flex items-center"><Map className="w-3 h-3 mr-1"/> {item.direccion}</p>
-                    <div className="mt-3 flex justify-between items-center text-xs">
-                      <span className="font-semibold text-stone-400">Desde ${item.ultimoPrecioUSD}/m²</span>
-                      <span className="text-amber-600 font-bold">Ver en mapa &rarr;</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="lg:col-span-8 rounded-xl overflow-hidden border border-stone-200 bg-stone-100 flex items-center justify-center relative shadow-inner">
-              {proyectosConDireccion.length > 0 ? (
-                <iframe 
-                  id="mapa-global"
-                  srcDoc={htmlMapa} 
-                  width="100%" 
-                  height="100%" 
-                  style={{ border: 0 }} 
-                  sandbox="allow-scripts allow-same-origin"
-                  loading="lazy" 
-                  className="absolute inset-0"
-                ></iframe>
-              ) : (
-                <div className="text-stone-400 text-sm font-medium flex flex-col items-center">
-                  <MapPin className="w-10 h-10 mb-2 opacity-50" /> Sin ubicaciones para mapear
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* PORTAFOLIO DE PROYECTOS (TARJETAS) */}
-        <div className="pt-8">
-          <h2 className="text-2xl font-serif font-bold text-slate-900 mb-6 flex items-center tracking-tight">
-            Portafolio de Proyectos
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {proyectos.map((proyecto, index) => {
+        {/* Lista de Proyectos */}
+        <div className="flex-1 overflow-y-auto p-6" style={{ scrollbarWidth: 'thin', scrollbarColor: '#334155 transparent' }}>
+          <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-4">Portafolio de Proyectos</h3>
+          <div className="space-y-3">
+            {proyectos.map((proyecto) => {
               const resumen = resumenPrecios.find(r => r.id === proyecto.id)
-              const gradientClass = gradients[index % gradients.length]
-              
               return (
-                <Link key={proyecto.id} href={`/proyecto/${proyecto.id}`} className="group bg-white rounded-2xl border border-stone-200 hover:shadow-lg transition-all duration-300 flex flex-col h-56 cursor-pointer overflow-hidden transform hover:-translate-y-1">
-                  <div className={`h-16 w-full bg-gradient-to-r ${gradientClass} opacity-90 group-hover:opacity-100 transition-opacity duration-300`}></div>
-                  
-                  <div className="p-6 flex-1 flex flex-col justify-between">
+                <Link key={proyecto.id} href={`/proyecto/${proyecto.id}`} className="group block p-4 rounded-xl border border-slate-800 bg-slate-900/50 hover:bg-slate-800 hover:border-amber-500/50 transition-all">
+                  <div className="flex justify-between items-center">
                     <div>
-                      <h3 className="font-bold text-lg text-slate-800 group-hover:text-amber-600 transition-colors tracking-tight line-clamp-1">{proyecto.nombre}</h3>
-                      {resumen ? (
-                        <div className="mt-3">
-                          <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Último estimado</p>
-                          <p className="font-black text-slate-900 text-2xl mt-1 tracking-tight">${resumen.ultimoPrecioUSD.toLocaleString()} <span className="text-xs font-semibold text-stone-400">/m²</span></p>
-                        </div>
-                      ) : (
-                        <div className="mt-3">
-                          <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Estado</p>
-                          <p className="font-semibold text-stone-500 text-sm mt-1">Sin configurar</p>
-                        </div>
-                      )}
+                      <h4 className="font-bold text-sm text-slate-200 group-hover:text-amber-500 transition-colors line-clamp-1">{proyecto.nombre}</h4>
+                      <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-semibold">
+                        {resumen ? `M2: $${resumen.ultimoPrecioUSD.toLocaleString()}` : 'Sin cotizar'}
+                      </p>
                     </div>
-                    
-                    <div className="flex items-center text-amber-600 text-sm font-bold opacity-0 group-hover:opacity-100 transition-opacity transform translate-x-[-10px] group-hover:translate-x-0 duration-300">
-                      Gestionar Proyecto &rarr;
-                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-amber-500 transition-transform group-hover:translate-x-1" />
                   </div>
                 </Link>
               )
@@ -549,7 +302,261 @@ export default function Home() {
           </div>
         </div>
 
-      </div>
-    </main>
+        <div className="p-6 border-t border-slate-800">
+          <Link href="/configuracion" className="flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-300 px-4 py-3 rounded-xl border border-slate-700 transition-all font-medium text-xs w-full">
+            <Settings className="w-4 h-4 mr-2" /> Configuración Global
+          </Link>
+        </div>
+      </aside>
+
+      {/* ÁREA PRINCIPAL (Dashboard) */}
+      <main className="flex-1 h-full overflow-y-auto p-4 md:p-8">
+        <div className="max-w-6xl mx-auto space-y-8">
+          
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-serif font-bold text-slate-900 tracking-tight">Comercialink Dashboard</h1>
+              <p className="text-slate-500 mt-1 font-medium tracking-wide text-xs uppercase">Panel Gerencial de Inteligencia</p>
+            </div>
+            <Link href="/reporte" className="inline-flex items-center bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-xl shadow-lg border border-slate-800 transition-all font-bold text-sm active:scale-95">
+              <BarChart3 className="w-4 h-4 mr-2 text-amber-500" /> Generar Reporte
+            </Link>
+          </div>
+
+          {/* 4 KPIs SUPERIORES */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-stone-200 flex flex-col justify-between">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Total Proyectos</p>
+                <Briefcase className="w-4 h-4 text-slate-400" />
+              </div>
+              <div className="flex items-baseline text-slate-800">
+                <p className="text-3xl font-bold font-serif">{proyectos.length}</p>
+                <span className="text-sm font-serif ml-2 text-slate-500">activos</span>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-stone-200 flex flex-col justify-between">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Promedio Portafolio</p>
+                <Wallet className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div className="flex items-baseline text-emerald-700">
+                <span className="text-lg font-serif mr-1">$</span>
+                <p className="text-3xl font-bold font-serif">{precioPromedioPortafolio.toLocaleString()}</p>
+              </div>
+            </div>
+            
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-stone-200 flex flex-col justify-between">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Inventario Libre</p>
+                <AlertTriangle className="w-4 h-4 text-red-700" />
+              </div>
+              <div className="flex items-baseline text-red-700">
+                <span className="text-lg font-serif mr-1">$</span>
+                <p className="text-3xl font-bold font-serif">{valorTotalInventario.toLocaleString()}</p>
+              </div>
+              <p className="text-[10px] font-bold text-red-500 mt-1 uppercase tracking-widest">{m2TotalesDisponibles.toLocaleString('es-AR')} m² libres</p>
+            </div>
+
+            {/* NUEVO KPI: VENTAS POR PERIODO */}
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-stone-200 flex flex-col justify-between ring-1 ring-amber-500/20">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest flex items-center text-amber-600">
+                  <CalendarDays className="w-3 h-3 mr-1" /> Ventas Período
+                </p>
+                <div className="flex gap-1">
+                  <select value={filtroMes} onChange={(e)=>setFiltroMes(Number(e.target.value))} className="text-[10px] font-bold bg-stone-50 border border-stone-200 rounded p-1 outline-none text-slate-700 cursor-pointer hover:border-amber-400">
+                    {meses.map(m => <option key={m.val} value={m.val}>{m.label}</option>)}
+                  </select>
+                  <select value={filtroAnio} onChange={(e)=>setFiltroAnio(Number(e.target.value))} className="text-[10px] font-bold bg-stone-50 border border-stone-200 rounded p-1 outline-none text-slate-700 cursor-pointer hover:border-amber-400">
+                    {anios.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-baseline text-amber-600 mt-1">
+                <span className="text-lg font-serif mr-1">$</span>
+                <p className="text-3xl font-bold font-serif">{totalVentasPeriodo.toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* GRID DE PANELES CENTRALES (GRAFICOS Y MAPAS) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
+              <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Ranking Precios (USD/m²)</h2>
+              <div className="h-64 w-full relative z-10">
+                {resumenPrecios.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={resumenPrecios} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" />
+                      <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis dataKey="nombre" type="category" width={80} tick={{ fill: '#f8fafc', fontSize: 10, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                      <RechartsTooltip cursor={{ fill: '#1e293b' }} contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }} />
+                      <Bar dataKey="ultimoPrecioUSD" fill="#0f766e" radius={[0, 4, 4, 0]} name="Precio USD/m²" barSize={20} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin datos.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
+              <div className="flex items-center justify-between mb-6 relative z-10">
+                <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Evolución Histórica</h2>
+                <select 
+                  value={proyectoSeleccionadoId} 
+                  onChange={(e) => setProyectoSeleccionadoId(e.target.value)}
+                  className="bg-slate-800 border border-slate-700 text-slate-200 text-[10px] font-bold uppercase rounded p-1 outline-none cursor-pointer"
+                >
+                  <option value="todos">Promedio Global</option>
+                  {proyectos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>
+              </div>
+              <div className="h-64 w-full relative z-10">
+                 {datosGraficoLinea.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={datosGraficoLinea} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorPrecio" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#d97706" stopOpacity={0.4}/>
+                          <stop offset="95%" stopColor="#d97706" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                      <XAxis dataKey="fecha" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} dy={10} />
+                      <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} domain={['auto', 'auto']} axisLine={false} tickLine={false} />
+                      <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} labelStyle={{ color: '#94a3b8', marginBottom: '4px' }} itemStyle={{ color: '#d97706', fontWeight: 'bold' }} />
+                      <Area type="monotone" dataKey="resultado_precio_promedio_usd" stroke="#d97706" strokeWidth={3} fillOpacity={1} fill="url(#colorPrecio)" activeDot={{ r: 6, strokeWidth: 0, fill: '#d97706' }} name="Precio USD/m²" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin historial para este proyecto.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
+              <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">
+                <PieChartIcon className="w-4 h-4 mr-2" /> Participación de Inventario
+              </h2>
+              <div className="h-64 w-full relative z-10">
+                {datosTorta.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={datosTorta}
+                        dataKey="valorInventario"
+                        nameKey="nombre"
+                        cx="50%"
+                        cy="45%"
+                        innerRadius={55}
+                        outerRadius={80}
+                        paddingAngle={2}
+                        stroke="none"
+                      >
+                        {datosTorta.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip 
+                        formatter={formatTooltipPie}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} 
+                        itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
+                      />
+                      <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '10px', color: '#94a3b8' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin inventario disponible para mostrar.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
+              <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Detalle Actual</h2>
+              <div className="h-64 w-full relative z-10 overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin', scrollbarColor: '#475569 transparent' }}>
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 bg-slate-900 z-20">
+                    <tr className="border-b border-slate-700">
+                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Proyecto</th>
+                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Inv. (USD)</th>
+                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Precio/m²</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resumenPrecios.map((item, i) => (
+                      <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/50 transition-colors">
+                        <td className="py-3 text-[11px] font-bold text-slate-200">{item.nombre}</td>
+                        <td className="py-3 text-[11px] font-medium text-amber-500 text-center">${item.valorInventario.toLocaleString()}</td>
+                        <td className="py-3 text-[11px] font-black text-emerald-500 text-right">${item.ultimoPrecioUSD.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {resumenPrecios.length === 0 && (
+                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic mt-10">Sin datos.</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* MAPA INTERACTIVO GLOBAL MULTI-PIN */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-serif font-bold text-slate-900 flex items-center tracking-tight">
+                <MapPin className="w-5 h-5 mr-2 text-slate-600" /> Mapa del Portafolio
+              </h2>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[400px]">
+              <div className="lg:col-span-4 overflow-y-auto pr-2 space-y-3" style={{ scrollbarWidth: 'thin', scrollbarColor: '#d6d3d1 transparent' }}>
+                {proyectosConDireccion.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-stone-500 text-sm italic text-center p-6 border-2 border-dashed border-stone-200 rounded-xl">
+                    Aún no has agregado direcciones a tus proyectos.
+                  </div>
+                ) : (
+                  proyectosConDireccion.map((item) => (
+                    <div 
+                      key={item.id} 
+                      onClick={() => enfocarProyectoEnMapa(item.id, item.direccion)}
+                      className={`p-4 rounded-xl border cursor-pointer transition-all ${proyectoActivoMapa === item.id ? 'bg-slate-50 border-slate-300 shadow-sm' : 'bg-white border-stone-100 hover:border-stone-300'}`}
+                    >
+                      <h3 className={`font-bold text-sm ${proyectoActivoMapa === item.id ? 'text-slate-900' : 'text-slate-600'}`}>{item.nombre}</h3>
+                      <p className="text-[10px] text-stone-500 mt-1 line-clamp-1 flex items-center"><Map className="w-3 h-3 mr-1"/> {item.direccion}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="lg:col-span-8 rounded-xl overflow-hidden border border-stone-200 bg-stone-100 flex items-center justify-center relative shadow-inner">
+                {proyectosConDireccion.length > 0 ? (
+                  <iframe 
+                    id="mapa-global"
+                    srcDoc={htmlMapa} 
+                    width="100%" 
+                    height="100%" 
+                    style={{ border: 0 }} 
+                    sandbox="allow-scripts allow-same-origin"
+                    loading="lazy" 
+                    className="absolute inset-0"
+                  ></iframe>
+                ) : (
+                  <div className="text-stone-400 text-sm font-medium flex flex-col items-center">
+                    <MapPin className="w-10 h-10 mb-2 opacity-50" /> Sin ubicaciones para mapear
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          {/* Espacio final */}
+          <div className="pb-10"></div>
+
+        </div>
+      </main>
+    </div>
   )
 }

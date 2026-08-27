@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Wallet, TrendingUp, Clock, Tag, Box, LayoutGrid, Plus, Map, User, CheckSquare, FileText, BadgeDollarSign, Users } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Wallet, TrendingUp, Clock, Tag, Box, LayoutGrid, Plus, Map, User, CheckSquare, FileText, BadgeDollarSign, Users, RefreshCw } from 'lucide-react'
 
 const getTodayDate = () => {
   const d = new Date()
@@ -44,7 +44,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [filtroEstado, setFiltroEstado] = useState('todos')
 
   // Variables de FINANCIADOR
-  const [tipoOperacionFinanciador, setTipoOperacionFinanciador] = useState<'venta' | 'socio'>('venta') // NUEVO ESTADO DUAL
+  const [tipoOperacionFinanciador, setTipoOperacionFinanciador] = useState<'venta' | 'socio'>('venta')
   const [unidadSeleccionada, setUnidadSeleccionada] = useState('')
   const [finPrecioVenta, setFinPrecioVenta] = useState(0)
   const [finAnticipoPct, setFinAnticipoPct] = useState(0.40)
@@ -66,42 +66,69 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const [guardandoDireccion, setGuardandoDireccion] = useState(false)
 
   const [notificacion, setNotificacion] = useState({ mostrar: false, mensaje: '', tipo: 'exito' })
+  const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
     async function fetchData() {
-      const [resProyecto, resConfig, resHistorial, resUnidades, resOperaciones, resIndices] = await Promise.all([
-        supabase.from('proyectos').select('*').eq('id', params.id).single(),
-        supabase.from('configuracion_global').select('*').eq('id', 1).single(),
-        supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('fecha_referencia', { ascending: false }).limit(1),
-        supabase.from('unidades').select('*').eq('id_proyecto', params.id).order('identificador', { ascending: true }),
-        supabase.from('si_operaciones').select('*, unidades(identificador)').eq('id_proyecto', params.id).order('fecha_operacion', { ascending: false }),
-        supabase.from('si_indices_macro').select('*').order('anio', { ascending: false }).order('mes', { ascending: false })
-      ])
-      
-      if (resProyecto.data) {
-        setProyecto(resProyecto.data)
-        if (resProyecto.data.superficie_vendible_m2) setSuperficieVendible(resProyecto.data.superficie_vendible_m2)
-        if (resProyecto.data.valor_terreno_usd != null) setValorTerrenoUSD(resProyecto.data.valor_terreno_usd)
-        if (resProyecto.data.gastos_admin != null) setPctAdmin(resProyecto.data.gastos_admin)
-        if (resProyecto.data.imprevistos != null) setPctImprevistos(resProyecto.data.imprevistos)
-        if (resProyecto.data.pct_ajuste != null) setPctAjuste(resProyecto.data.pct_ajuste)
-        if (resProyecto.data.direccion) setDireccionProyecto(resProyecto.data.direccion)
-      }
-      if (resConfig.data) setConfigGlobal(resConfig.data)
+      try {
+        const [resProyecto, resConfig, resHistorial, resUnidades, resOperaciones, resIndices] = await Promise.all([
+          supabase.from('proyectos').select('*').eq('id', params.id).single(),
+          supabase.from('configuracion_global').select('*').eq('id', 1).single(),
+          supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('fecha_referencia', { ascending: false }).limit(1),
+          supabase.from('unidades').select('*').eq('id_proyecto', params.id).order('identificador', { ascending: true }),
+          supabase.from('si_operaciones').select('*').eq('id_proyecto', params.id).order('fecha_operacion', { ascending: false }),
+          supabase.from('si_indices_macro').select('*').order('anio', { ascending: false }).order('mes', { ascending: false })
+        ])
+        
+        if (resProyecto.data) {
+          setProyecto(resProyecto.data)
+          if (resProyecto.data.superficie_vendible_m2) setSuperficieVendible(resProyecto.data.superficie_vendible_m2)
+          if (resProyecto.data.valor_terreno_usd != null) setValorTerrenoUSD(resProyecto.data.valor_terreno_usd)
+          if (resProyecto.data.gastos_admin != null) setPctAdmin(resProyecto.data.gastos_admin)
+          if (resProyecto.data.imprevistos != null) setPctImprevistos(resProyecto.data.imprevistos)
+          if (resProyecto.data.pct_ajuste != null) setPctAjuste(resProyecto.data.pct_ajuste)
+          if (resProyecto.data.direccion) setDireccionProyecto(resProyecto.data.direccion)
+        } else {
+          // Fallback de seguridad por si no encuentra por ID directo
+          const { data: pAlt } = await supabase.from('proyectos').select('*').limit(1).single();
+          if (pAlt) setProyecto(pAlt);
+        }
 
-      if (resHistorial.data && resHistorial.data.length > 0) {
-        const ultimo = resHistorial.data[0]
-        if (ultimo.costo_duro_m2) setCostoDuroM2(ultimo.costo_duro_m2)
-        if (ultimo.valor_terreno_usd != null) setValorTerrenoUSD(ultimo.valor_terreno_usd)
-        if (ultimo.canje_tierra_porcentaje != null) setCanjeTierra(ultimo.canje_tierra_porcentaje)
-        if (ultimo.margen_objetivo != null) setMargenObjetivo(ultimo.margen_objetivo)
-        if (ultimo.pct_ajuste != null) setPctAjuste(ultimo.pct_ajuste)
-        if (ultimo.fecha_referencia) setFechaReferencia(ultimo.fecha_referencia)
-      }
+        if (resConfig.data) {
+          setConfigGlobal(resConfig.data)
+        } else {
+          setConfigGlobal({ tipo_cambio: 1350, tasa_iibb: 0.035, tasa_tem: 0.01, comision_venta: 0.03, tasa_iva: 0.105 })
+        }
 
-      if (resUnidades.data) setUnidades(resUnidades.data)
-      if (resOperaciones.data) setOperaciones(resOperaciones.data)
-      if (resIndices.data) setIndicesMacro(resIndices.data)
+        if (resHistorial.data && resHistorial.data.length > 0) {
+          const ultimo = resHistorial.data[0]
+          if (ultimo.costo_duro_m2) setCostoDuroM2(ultimo.costo_duro_m2)
+          if (ultimo.valor_terreno_usd != null) setValorTerrenoUSD(ultimo.valor_terreno_usd)
+          if (ultimo.canje_tierra_porcentaje != null) setCanjeTierra(ultimo.canje_tierra_porcentaje)
+          if (ultimo.margen_objetivo != null) setMargenObjetivo(ultimo.margen_objetivo)
+          if (ultimo.pct_ajuste != null) setPctAjuste(ultimo.pct_ajuste)
+          if (ultimo.fecha_referencia) setFechaReferencia(ultimo.fecha_referencia)
+        }
+
+        const listaUnidades = resUnidades.data || [];
+        setUnidades(listaUnidades)
+
+        // Combinar datos de operaciones con el identificador de unidad en memoria (más seguro)
+        const listaOperaciones = (resOperaciones.data || []).map((op: any) => {
+          const un = listaUnidades.find((u: any) => u.id === op.id_unidad)
+          return {
+            ...op,
+            unidades: { identificador: un ? un.identificador : 'S/D' }
+          }
+        })
+        setOperaciones(listaOperaciones)
+        
+        if (resIndices.data) setIndicesMacro(resIndices.data)
+      } catch (err) {
+        console.error("Error cargando datos del proyecto:", err)
+      } finally {
+        setCargando(false)
+      }
     }
     fetchData()
   }, [params.id])
@@ -111,9 +138,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       try {
         const res = calcularPrecioSugerido({
           superficieVendible, costoDuroM2, valorTerrenoUSD, canjeTierraPct: canjeTierra, canjeHonorariosPct: canjeHonorarios,
-          margenObjetivo, tasaIIBB: configGlobal.tasa_iibb, tasaTEM: configGlobal.tasa_tem,
-          comisionVenta: configGlobal.comision_venta, tipoCambio: configGlobal.tipo_cambio,
-          pctIVA: configGlobal.tasa_iva, pctAdmin, pctImprevistos, pctAjuste
+          margenObjetivo, tasaIIBB: configGlobal.tasa_iibb || 0.035, tasaTEM: configGlobal.tasa_tem || 0.01,
+          comisionVenta: configGlobal.comision_venta || 0.03, tipoCambio: configGlobal.tipo_cambio || 1350,
+          pctIVA: configGlobal.tasa_iva || 0.105, pctAdmin, pctImprevistos, pctAjuste
         })
         setResultados(res)
         
@@ -122,7 +149,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
             const unidadElegida = unidades.find(u => u.id === unidadSeleccionada)
             if (unidadElegida) setFinPrecioVenta(Math.round(unidadElegida.superficie_m2 * res.precioSugeridoUSD))
           } else if (tipoOperacionFinanciador === 'socio') {
-            setFinPrecioVenta(0) // El socio suele tener aportes muy variables, empezamos en 0 o dejamos lo manual
+            setFinPrecioVenta(0)
           } else {
             setFinPrecioVenta(Math.round(res.precioSugeridoUSD))
           }
@@ -217,7 +244,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     }
   }
 
-  // --- REGISTRO DE VENTA O APORTE SOCIETARIO ---
+  // REGISTRO DE OPERACIÓN
   async function registrarOperacion() {
     if (tipoOperacionFinanciador === 'venta' && !unidadSeleccionada) {
       mostrarNotificacion('Debes seleccionar una unidad específica', 'error')
@@ -257,7 +284,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
     const { data: operacionInsertada, error: errorOp } = await supabase.from('si_operaciones')
       .insert(objetoAInsertar)
-      .select('*, unidades(identificador)').single()
+      .select('*').single()
 
     if (errorOp || !operacionInsertada) {
       mostrarNotificacion('Error al registrar operación', 'error')
@@ -265,10 +292,15 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       return
     }
 
+    const unElegida = unidades.find(u => u.id === unidadSeleccionada)
+    const opCompleta = {
+      ...operacionInsertada,
+      unidades: { identificador: unElegida ? unElegida.identificador : 'S/D' }
+    }
+
     const cuotasArray = [];
     const fechaVenta = new Date();
     
-    // Anticipo
     if (anticipoUSD > 0) {
       cuotasArray.push({
         id_operacion: operacionInsertada.id,
@@ -280,7 +312,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       });
     }
 
-    // Cuotas regulares
     for (let i = 1; i <= finCuotas; i++) {
        const fechaVencimiento = new Date(fechaVenta);
        fechaVencimiento.setMonth(fechaVencimiento.getMonth() + i);
@@ -298,13 +329,12 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
       await supabase.from('si_cuotas').insert(cuotasArray);
     }
 
-    // Si es Venta, cambiamos estado de la unidad
     if (tipoOperacionFinanciador === 'venta') {
       await supabase.from('unidades').update({ estado: 'vendida' }).eq('id', unidadSeleccionada)
       setUnidades(unidades.map(u => u.id === unidadSeleccionada ? { ...u, estado: 'vendida' } : u))
     }
 
-    setOperaciones([operacionInsertada, ...operaciones])
+    setOperaciones([opCompleta, ...operaciones])
     setUnidadSeleccionada('')
     setClienteNombre('')
     mostrarNotificacion(tipoOperacionFinanciador === 'venta' ? '¡Venta registrada con éxito!' : '¡Aporte de Socio registrado!')
@@ -312,7 +342,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
     setActiveTab('CTA_CTE')
   }
 
-  // --- CTA CTE: CARGAR CUOTAS Y AJUSTE INTELIGENTE ---
+  // CTA CTE: CARGAR CUOTAS Y AJUSTE
   async function cargarEstadoCuenta(op: any) {
     if (operacionSeleccionada?.id === op.id) {
       setOperacionSeleccionada(null)
@@ -380,12 +410,24 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
   const totalPagado = cuotasOperacion.filter(c => c.estado === 'pagada').reduce((acc, c) => acc + Number(c.monto_usd), 0);
   const totalPendiente = cuotasOperacion.filter(c => c.estado === 'pendiente').reduce((acc, c) => acc + Number(c.monto_usd), 0);
 
-  if (!proyecto || !configGlobal) return (
+  if (cargando) return (
     <div className="min-h-screen bg-stone-50 flex items-center justify-center">
       <div className="flex flex-col items-center space-y-4">
         <Activity className="w-8 h-8 text-amber-500 animate-pulse" />
-        <p className="text-slate-500 font-bold tracking-widest uppercase text-xs">Sincronizando modelos...</p>
+        <p className="text-slate-500 font-bold tracking-widest uppercase text-xs">Cargando Proyecto...</p>
+        <button onClick={() => setCargando(false)} className="text-xs text-amber-600 underline font-semibold mt-2">
+          Haga clic aquí si no carga automáticamente
+        </button>
       </div>
+    </div>
+  )
+
+  if (!proyecto) return (
+    <div className="min-h-screen bg-stone-50 p-10 flex flex-col items-center justify-center">
+      <h2 className="text-xl font-bold text-slate-800 mb-4">No se encontró la información de este proyecto.</h2>
+      <Link href="/" className="bg-slate-900 text-white font-bold px-6 py-3 rounded-xl text-sm">
+        Volver al Portafolio
+      </Link>
     </div>
   )
 
@@ -421,7 +463,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
           <div className="bg-white px-5 py-3 rounded-xl border border-stone-200 shadow-sm flex items-center">
             <span className="text-xs font-bold text-stone-400 uppercase tracking-widest mr-3">T.C. Activo</span>
-            <span className="text-amber-600 font-black text-lg">${configGlobal.tipo_cambio}</span>
+            <span className="text-amber-600 font-black text-lg">${configGlobal?.tipo_cambio || 1350}</span>
           </div>
         </div>
 
@@ -444,9 +486,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </button>
         </div>
 
-        {/* ==================================================== */}
         {/* PESTAÑA: PRECIOS */}
-        {/* ==================================================== */}
         {activeTab === 'PRECIOS' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8 space-y-8">
@@ -519,10 +559,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                         <div className="flex justify-between pl-3"><span>Administración</span><span>{Math.round(resultados.ticket.administracion).toLocaleString()}</span></div>
                         <div className="flex justify-between text-white font-bold border-y border-slate-700/50 py-2 my-2"><span>Subtotal 1 (Costos)</span><span>${Math.round(resultados.ticket.subtotal1).toLocaleString()}</span></div>
                         
-                        <div className="flex justify-between pl-3"><span>IIBB y TEM</span><span>{Math.round(resultados.ticket.iibbYTem).toLocaleString()}</span></div>
-                        <div className="flex justify-between pl-3"><span>Comercializ.</span><span>{Math.round(resultados.ticket.comercializacion).toLocaleString()}</span></div>
-                        <div className="flex justify-between text-white font-bold border-y border-slate-700/50 py-2 my-2"><span>Subtotal 2 (Caja)</span><span>${Math.round(resultados.ticket.subtotal2).toLocaleString()}</span></div>
-                        
                         <div className="flex justify-between text-amber-500 font-bold bg-black/40 -mx-5 p-5 mt-4 border-t border-amber-500/20 rounded-b-2xl">
                           <span>TOTAL COSTO PROYECTO</span><span>${Math.round(resultados.ticket.totalCostoVivienda).toLocaleString()}</span>
                         </div>
@@ -545,9 +581,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
-        {/* ==================================================== */}
         {/* PESTAÑA: STOCK */}
-        {/* ==================================================== */}
         {activeTab === 'STOCK' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-4 space-y-8">
@@ -636,9 +670,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
-        {/* ==================================================== */}
-        {/* PESTAÑA: FINANCIADOR CON MÓDULO PARA SOCIOS/VENTAS */}
-        {/* ==================================================== */}
+        {/* PESTAÑA: FINANCIADOR */}
         {activeTab === 'FINANCIADOR' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-8 bg-white p-8 rounded-2xl shadow-sm border border-stone-200">
@@ -646,8 +678,6 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                 <h2 className="text-sm font-bold text-slate-800 flex items-center uppercase tracking-widest">
                   <Calculator className="w-5 h-5 mr-3 text-amber-500" /> Registro de Operaciones
                 </h2>
-                
-                {/* SELECTOR DE TIPO DE OPERACIÓN (NUEVO) */}
                 <div className="flex bg-stone-100 rounded-lg p-1 border border-stone-200">
                   <button 
                     onClick={() => setTipoOperacionFinanciador('venta')}
@@ -794,15 +824,13 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
-        {/* ==================================================== */}
-        {/* PESTAÑA: CUENTAS CORRIENTES (COBRANZAS) */}
-        {/* ==================================================== */}
+        {/* PESTAÑA: CUENTAS CORRIENTES */}
         {activeTab === 'CTA_CTE' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-4 space-y-4">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
                 <h2 className="text-sm font-bold text-slate-800 flex items-center uppercase tracking-widest mb-4">
-                  <User className="w-5 h-5 mr-3 text-emerald-600" /> Clientes y Socios
+                  <User className="w-5 h-5 mr-3 text-emerald-600" /> Clientes y Socios ({operaciones.length})
                 </h2>
                 
                 {operaciones.length === 0 ? (
@@ -820,10 +848,10 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                         <div className="flex justify-between items-start mb-1">
                           <h3 className="font-bold text-sm text-slate-800">{op.cliente}</h3>
                           <span className={`text-[10px] font-bold px-2 py-1 rounded text-white ${op.tipo_operacion === 'socio' ? 'bg-emerald-600' : 'bg-slate-800'}`}>
-                            {op.tipo_operacion === 'socio' ? 'Aporte de Socio' : `Unidad ${op.unidades?.identificador}`}
+                            {op.tipo_operacion === 'socio' ? 'Aporte de Socio' : `Unidad ${op.unidades?.identificador || 'S/D'}`}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-500 font-medium">{op.forma_pago}</p>
+                        <p className="text-xs text-slate-500 font-medium">{op.forma_pago || 'Plan Regular'}</p>
                       </div>
                     ))}
                   </div>
@@ -841,7 +869,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
                         {operacionSeleccionada.tipo_operacion === 'socio' && <Users className="w-5 h-5 ml-3 text-emerald-500"/>}
                       </h2>
                       <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
-                        {operacionSeleccionada.tipo_operacion === 'socio' ? 'Aporte Societario' : `Unidad ${operacionSeleccionada.unidades?.identificador}`} • {operacionSeleccionada.cantidad_cuotas} Cuotas
+                        {operacionSeleccionada.tipo_operacion === 'socio' ? 'Aporte Societario' : `Unidad ${operacionSeleccionada.unidades?.identificador || 'S/D'}`} • {operacionSeleccionada.cantidad_cuotas} Cuotas
                       </p>
                     </div>
                     <div className="flex gap-6 text-right">
@@ -943,9 +971,7 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
           </div>
         )}
 
-        {/* ==================================================== */}
         {/* PESTAÑA: UBICACIÓN */}
-        {/* ==================================================== */}
         {activeTab === 'UBICACION' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-4 space-y-8">

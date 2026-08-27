@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
 import Link from 'next/link'
-import { Settings, Building2, DollarSign, Activity, BarChart3, Briefcase, MapPin, Map, PieChart as PieChartIcon, Box, CalendarX2, AlertTriangle, Wallet } from 'lucide-react'
+import { Settings, Building2, DollarSign, Activity, BarChart3, Briefcase, MapPin, Map, PieChart as PieChartIcon, Box, AlertTriangle, Wallet } from 'lucide-react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts'
 
 const gradients = [
@@ -15,19 +15,124 @@ const gradients = [
   'from-stone-600 to-stone-900'
 ]
 
-// NUEVA PALETA DE COLORES DE ALTO CONTRASTE
-const COLORS = [
-  '#f59e0b', // Ámbar
-  '#10b981', // Esmeralda
-  '#3b82f6', // Azul
-  '#f43f5e', // Rosa fuerte
-  '#8b5cf6', // Violeta
-  '#14b8a6', // Turquesa
-  '#ec4899', // Magenta
-  '#06b6d4', // Cian
-  '#84cc16', // Lima
-  '#64748b'  // Gris Plata
-];
+// COLORES DE ALTO CONTRASTE (Para el gráfico de Torta)
+const COLORS = ['#f59e0b', '#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#14b8a6', '#ec4899', '#0ea5e9'];
+
+// Generador del Motor del Mapa Múltiple (Leaflet inyectado en Iframe)
+const generarMapaHTML = (proyectosFiltrados: any[]) => {
+  const proyectosStr = JSON.stringify(proyectosFiltrados);
+  
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <style>
+        body { margin: 0; padding: 0; font-family: ui-sans-serif, system-ui, sans-serif; }
+        #map { height: 100vh; width: 100vw; background: #e7e5e4; }
+        .custom-popup .leaflet-popup-content-wrapper { border-radius: 8px; background: #0f172a; color: white; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); border: 1px solid #334155; }
+        .custom-popup .leaflet-popup-tip { background: #0f172a; }
+        .popup-title { font-weight: bold; color: #f59e0b; margin-bottom: 4px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em;}
+        .popup-price { color: #10b981; font-weight: 900; font-size: 14px;}
+      </style>
+    </head>
+    <body>
+      <div id="map"></div>
+      <script>
+        // Capa base estilo corporativo (CartoDB Voyager)
+        const map = L.map('map').setView([-26.82414, -65.2226], 13);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap & CARTO'
+        }).addTo(map);
+
+        const proyectos = ${proyectosStr};
+        const markersData = {};
+        const markersList = [];
+        
+        // Icono Dorado Elegante
+        const myIcon = L.icon({
+          iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+          shadowSize: [41, 41]
+        });
+
+        // Memoria Caché Inteligente (evita bloqueos de búsqueda)
+        const cache = JSON.parse(localStorage.getItem('geocode_cache_v1') || '{}');
+
+        // Escuchar clics desde la app en React para hacer zoom
+        window.addEventListener('message', function(event) {
+           if(event.data && event.data.type === 'zoomTo') {
+              const data = markersData[event.data.direccion];
+              if (data) {
+                 map.setView([data.lat, data.lon], 16, { animate: true, duration: 1.5 });
+                 data.marker.openPopup();
+              }
+           }
+        });
+
+        const procesarPines = async () => {
+          let cacheUpdated = false;
+
+          for (const p of proyectos) {
+            if (!p.direccion) continue;
+            
+            let lat, lon;
+            
+            if (cache[p.direccion]) {
+              lat = cache[p.direccion].lat;
+              lon = cache[p.direccion].lon;
+            } else {
+              try {
+                // Búsqueda de coordenadas gratis
+                const query = encodeURIComponent(p.direccion);
+                const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + query);
+                const data = await res.json();
+                
+                if (data && data.length > 0) {
+                  lat = parseFloat(data[0].lat);
+                  lon = parseFloat(data[0].lon);
+                  cache[p.direccion] = { lat, lon };
+                  cacheUpdated = true;
+                }
+              } catch (e) { console.error('Error', p.nombre); }
+              
+              // Pausa de 1 seg para no saturar el servidor gratis
+              await new Promise(r => setTimeout(r, 1200));
+            }
+
+            if (lat && lon) {
+              const marker = L.marker([lat, lon], {icon: myIcon}).addTo(map);
+              marker.bindPopup(
+                '<div class="popup-title">' + p.nombre + '</div>' +
+                '<div style="font-size:11px; margin-bottom:6px; color:#94a3b8;">' + p.direccion + '</div>' +
+                '<div class="popup-price">Desde $' + p.ultimoPrecioUSD + '/m²</div>',
+                { className: 'custom-popup' }
+              );
+              markersData[p.direccion] = { lat, lon, marker };
+              markersList.push([lat, lon]);
+            }
+          }
+          
+          if (cacheUpdated) {
+            localStorage.setItem('geocode_cache_v1', JSON.stringify(cache));
+          }
+
+          // Ajustar cámara para que se vean todos
+          if (markersList.length > 0) {
+            map.fitBounds(markersList, { padding: [50, 50] });
+          }
+        };
+
+        procesarPines();
+      </script>
+    </body>
+    </html>
+  `;
+};
 
 export default function Home() {
   const [proyectos, setProyectos] = useState<any[]>([])
@@ -36,9 +141,6 @@ export default function Home() {
   const [cargando, setCargando] = useState(true)
   
   const [proyectoSeleccionadoId, setProyectoSeleccionadoId] = useState<string>('todos')
-  
-  // ESTADOS PARA EL MAPA INTERACTIVO
-  const [mapaActivo, setMapaActivo] = useState<string>('San Miguel de Tucumán, Argentina')
   const [proyectoActivoMapa, setProyectoActivoMapa] = useState<string>('')
 
   useEffect(() => {
@@ -49,11 +151,6 @@ export default function Home() {
 
       if (dataProyectos) {
         setProyectos(dataProyectos)
-        const primerConDireccion = dataProyectos.find(p => p.direccion)
-        if (primerConDireccion) {
-          setMapaActivo(primerConDireccion.direccion)
-          setProyectoActivoMapa(primerConDireccion.id)
-        }
       }
 
       if (dataHistorial) {
@@ -124,6 +221,17 @@ export default function Home() {
       return historial.filter(h => h.id_proyecto === proyectoSeleccionadoId);
     }
   }, [historial, proyectoSeleccionadoId]);
+
+  const enfocarProyectoEnMapa = (id: string, direccion: string) => {
+    setProyectoActivoMapa(id);
+    const iframe = document.getElementById('mapa-global') as HTMLIFrameElement;
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'zoomTo', direccion }, '*');
+    }
+  };
+
+  const proyectosConDireccion = useMemo(() => resumenPrecios.filter(r => r.direccion), [resumenPrecios]);
+  const htmlMapa = useMemo(() => generarMapaHTML(proyectosConDireccion), [proyectosConDireccion]);
 
   if (cargando) return (
     <div className="min-h-screen bg-stone-50 flex items-center justify-center">
@@ -359,7 +467,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* MAPA INTERACTIVO GLOBAL */}
+        {/* MAPA INTERACTIVO GLOBAL MULTI-PIN */}
         <div className="bg-white p-8 rounded-2xl shadow-sm border border-stone-200 mt-4">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-xl font-serif font-bold text-slate-900 flex items-center tracking-tight">
@@ -369,15 +477,15 @@ export default function Home() {
           
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[500px]">
             <div className="lg:col-span-4 overflow-y-auto pr-2 space-y-3" style={{ scrollbarWidth: 'thin', scrollbarColor: '#d6d3d1 transparent' }}>
-              {resumenPrecios.filter(r => r.direccion).length === 0 ? (
+              {proyectosConDireccion.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-stone-500 text-sm italic text-center p-6 border-2 border-dashed border-stone-200 rounded-xl">
-                  Aún no has agregado direcciones a tus proyectos. Edítalos para verlos aquí.
+                  Aún no has agregado direcciones a tus proyectos. Ve a la pestaña "Ubicación" dentro de un proyecto para agregarlas.
                 </div>
               ) : (
-                resumenPrecios.filter(r => r.direccion).map((item) => (
+                proyectosConDireccion.map((item) => (
                   <div 
                     key={item.id} 
-                    onClick={() => { setMapaActivo(item.direccion); setProyectoActivoMapa(item.id); }}
+                    onClick={() => enfocarProyectoEnMapa(item.id, item.direccion)}
                     className={`p-4 rounded-xl border cursor-pointer transition-all ${proyectoActivoMapa === item.id ? 'bg-slate-50 border-slate-300 shadow-sm' : 'bg-white border-stone-100 hover:border-stone-300'}`}
                   >
                     <h3 className={`font-bold text-sm ${proyectoActivoMapa === item.id ? 'text-slate-900' : 'text-slate-600'}`}>{item.nombre}</h3>
@@ -391,21 +499,21 @@ export default function Home() {
               )}
             </div>
 
-            <div className="lg:col-span-8 rounded-xl overflow-hidden border border-stone-200 bg-stone-100 flex items-center justify-center relative">
-              {mapaActivo ? (
+            <div className="lg:col-span-8 rounded-xl overflow-hidden border border-stone-200 bg-stone-100 flex items-center justify-center relative shadow-inner">
+              {proyectosConDireccion.length > 0 ? (
                 <iframe 
-                  src={`https://maps.google.com/maps?q=${encodeURIComponent(mapaActivo)}&z=15&output=embed`} 
+                  id="mapa-global"
+                  srcDoc={htmlMapa} 
                   width="100%" 
                   height="100%" 
                   style={{ border: 0 }} 
-                  allowFullScreen={true} 
+                  sandbox="allow-scripts allow-same-origin"
                   loading="lazy" 
-                  referrerPolicy="no-referrer-when-downgrade"
                   className="absolute inset-0"
                 ></iframe>
               ) : (
                 <div className="text-stone-400 text-sm font-medium flex flex-col items-center">
-                  <MapPin className="w-10 h-10 mb-2 opacity-50" /> Selecciona un proyecto para ubicarlo
+                  <MapPin className="w-10 h-10 mb-2 opacity-50" /> Sin ubicaciones para mapear
                 </div>
               )}
             </div>

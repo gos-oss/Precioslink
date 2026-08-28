@@ -404,7 +404,9 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
   const unidadesDisponibles = unidades.filter(u => u.estado === 'disponible');
   const m2Disponibles = unidadesDisponibles.reduce((acc, u) => acc + Number(u.superficie_m2), 0);
-  const valorInventario = resultados ? Math.round(m2Disponibles * resultados.precioSugeridoUSD) : 0;
+  const valorInventarioUSD = unidadesDisponibles.reduce((acc, u) => {
+  // Opción A: Suma directa del precio de lista del Excel
+  if (u.precio_lista_usd) return acc + Number(u.precio_lista_usd);
   const unidadesFiltradas = filtroEstado === 'todos' ? unidades : unidades.filter(u => u.estado === filtroEstado);
 
   const totalPagado = cuotasOperacion.filter(c => c.estado === 'pagada').reduce((acc, c) => acc + Number(c.monto_usd), 0);

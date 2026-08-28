@@ -1,0 +1,6 @@
+{
+  "name": "Precioslink",
+  "description": "Sistema de gestión de pricing, inventario y reportes inmobiliarios para proyectos de inversión",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

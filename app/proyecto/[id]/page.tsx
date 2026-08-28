@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
 interface Unidad {
   id: string
@@ -12,23 +13,16 @@ interface Unidad {
   precio_lista_usd?: number
 }
 
-interface ResultadosPricing {
-  precioSugeridoUSD: number
-}
-
 export default function ProyectoDetallePage({ params }: { params: { id: string } }) {
+  const supabase = createClientComponentClient()
+
   const [activeTab, setActiveTab] = useState<'pricing' | 'stock' | 'financiador' | 'cobros' | 'ubicacion'>('stock')
   const [filtroEstado, setFiltroEstado] = useState<string>('todos')
-  
-  // Datos del proyecto y pricing
   const [tcActivo] = useState<number>(1530)
-  const [resultados] = useState<ResultadosPricing>({ precioSugeridoUSD: 1746.62 })
+  const [precioSugeridoUSD] = useState<number>(1746.62)
   
-  const [unidades, setUnidades] = useState<Unidad[]>([
-    { id: '1', identificador: 'SUBSUELO 1 - Cochera 11', superficie_m2: 32.02, estado: 'disponible', porcentaje_aplicar: 54.3, precio_lista_usd: 25311 },
-    { id: '2', identificador: 'SUBSUELO 2 - Cochera 28', superficie_m2: 27.19, estado: 'disponible', porcentaje_aplicar: 52.8, precio_lista_usd: 20878 },
-    { id: '3', identificador: 'SUBSUELO 2 - Cochera 29', superficie_m2: 21.75, estado: 'disponible', porcentaje_aplicar: 60.3, precio_lista_usd: 19089 },
-  ])
+  const [unidades, setUnidades] = useState<Unidad[]>([])
+  const [loading, setLoading] = useState<boolean>(true)
 
   // Formulario nueva unidad
   const [nuevaUnidad, setNuevaUnidad] = useState({
@@ -38,22 +32,43 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
     porcentaje_aplicar: '100',
   })
 
-  // Filtros de unidades disponibles
+  // Cargar unidades dinámicamente desde la base de datos
+  useEffect(() => {
+    async function fetchUnidades() {
+      setLoading(true)
+      const { data, error } = await supabase
+        .from('unidades')
+        .select('*')
+        .eq('id_proyecto', params.id)
+        .order('created_at', { ascending: true })
+
+      if (!error && data) {
+        setUnidades(data)
+      }
+      setLoading(false)
+    }
+
+    if (params.id) {
+      fetchUnidades()
+    }
+  }, [params.id, supabase])
+
+  // Unidades disponibles para los indicadores
   const unidadesDisponibles = unidades.filter((u) => u.estado === 'disponible')
-  
+
+  // Suma exacta de m² libres
   const m2Disponibles = unidadesDisponibles.reduce(
     (acc, u) => acc + Number(u.superficie_m2 || 0),
     0
   )
 
-  // Cálculo exacto del valor de inventario libre
+  // Suma exacta en USD
   const valorInventarioUSD = unidadesDisponibles.reduce((acc, u) => {
     if (u.precio_lista_usd && Number(u.precio_lista_usd) > 0) {
       return acc + Number(u.precio_lista_usd)
     }
     const coef = Number(u.porcentaje_aplicar ?? 100) / 100
-    const precioBase = resultados?.precioSugeridoUSD || 0
-    return acc + Number(u.superficie_m2 || 0) * precioBase * coef
+    return acc + Number(u.superficie_m2 || 0) * precioSugeridoUSD * coef
   }, 0)
 
   const unidadesFiltradas = unidades.filter((u) => {
@@ -61,20 +76,27 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
     return u.estado === filtroEstado
   })
 
-  const handleAgregarUnidad = (e: React.FormEvent) => {
+  const handleAgregarUnidad = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!nuevaUnidad.identificador || !nuevaUnidad.superficie_m2) return
 
-    const nueva: Unidad = {
-      id: Date.now().toString(),
-      identificador: nuevaUnidad.identificador,
-      superficie_m2: Number(nuevaUnidad.superficie_m2),
-      estado: nuevaUnidad.estado,
-      porcentaje_aplicar: Number(nuevaUnidad.porcentaje_aplicar || 100),
-    }
+    const { data, error } = await supabase
+      .from('unidades')
+      .insert([
+        {
+          id_proyecto: params.id,
+          identificador: nuevaUnidad.identificador,
+          superficie_m2: Number(nuevaUnidad.superficie_m2),
+          estado: nuevaUnidad.estado,
+          porcentaje_aplicar: Number(nuevaUnidad.porcentaje_aplicar || 100),
+        },
+      ])
+      .select()
 
-    setUnidades([...unidades, nueva])
-    setNuevaUnidad({ identificador: '', superficie_m2: '', estado: 'disponible', porcentaje_aplicar: '100' })
+    if (!error && data) {
+      setUnidades([...unidades, data[0]])
+      setNuevaUnidad({ identificador: '', superficie_m2: '', estado: 'disponible', porcentaje_aplicar: '100' })
+    }
   }
 
   return (
@@ -86,7 +108,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
         </Link>
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-3xl font-extrabold text-slate-900">#300 Corpo</h1>
+            <h1 className="text-3xl font-extrabold text-slate-900">Detalle de Proyecto</h1>
             <p className="text-slate-500 text-sm">Carga inicial desde matriz de precios</p>
           </div>
           <div className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-right shadow-sm">
@@ -98,56 +120,19 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
 
       {/* Navegación por pestañas */}
       <div className="max-w-7xl mx-auto border-b border-slate-200 mb-6 flex gap-2">
-        <button
-          onClick={() => setActiveTab('pricing')}
-          className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
-            activeTab === 'pricing'
-              ? 'border-amber-500 text-amber-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          🏷️ PRICING
-        </button>
-        <button
-          onClick={() => setActiveTab('stock')}
-          className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
-            activeTab === 'stock'
-              ? 'border-amber-500 text-amber-600 bg-amber-50/50 rounded-t-lg'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          🔲 STOCK
-        </button>
-        <button
-          onClick={() => setActiveTab('financiador')}
-          className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
-            activeTab === 'financiador'
-              ? 'border-amber-500 text-amber-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          💼 FINANCIADOR
-        </button>
-        <button
-          onClick={() => setActiveTab('cobros')}
-          className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
-            activeTab === 'cobros'
-              ? 'border-amber-500 text-amber-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          🪙 CTA CTE (COBROS)
-        </button>
-        <button
-          onClick={() => setActiveTab('ubicacion')}
-          className={`pb-3 px-4 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
-            activeTab === 'ubicacion'
-              ? 'border-amber-500 text-amber-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          🗺️ UBICACIÓN
-        </button>
+        {(['pricing', 'stock', 'financiador', 'cobros', 'ubicacion'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`pb-3 px-4 text-sm font-bold uppercase flex items-center gap-2 border-b-2 transition-colors ${
+              activeTab === tab
+                ? 'border-amber-500 text-amber-600 bg-amber-50/50 rounded-t-lg'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
       </div>
 
       {/* Contenido Pestaña Stock */}
@@ -258,11 +243,17 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {unidadesFiltradas.length > 0 ? (
+                  {loading ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-slate-400 font-semibold">
+                        Cargando inventario...
+                      </td>
+                    </tr>
+                  ) : unidadesFiltradas.length > 0 ? (
                     unidadesFiltradas.map((u) => {
-                      const valorEstimado = u.precio_lista_usd
-                        ? u.precio_lista_usd
-                        : Number(u.superficie_m2) * resultados.precioSugeridoUSD * (Number(u.porcentaje_aplicar || 100) / 100)
+                      const valorEstimado = u.precio_lista_usd && Number(u.precio_lista_usd) > 0
+                        ? Number(u.precio_lista_usd)
+                        : Number(u.superficie_m2 || 0) * precioSugeridoUSD * (Number(u.porcentaje_aplicar || 100) / 100)
 
                       return (
                         <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">

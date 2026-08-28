@@ -404,9 +404,20 @@ export default function ProyectoCalculadora({ params }: { params: { id: string }
 
   const unidadesDisponibles = unidades.filter(u => u.estado === 'disponible');
   const m2Disponibles = unidadesDisponibles.reduce((acc, u) => acc + Number(u.superficie_m2), 0);
-  const valorInventarioUSD = unidadesDisponibles.reduce((acc, u) => {
-  // Opción A: Suma directa del precio de lista del Excel
+  // 1. Cálculo del valor de inventario corregido
+const valorInventarioUSD = unidadesDisponibles.reduce((acc, u) => {
   if (u.precio_lista_usd) return acc + Number(u.precio_lista_usd);
+  const coef = Number(u.porcentaje_aplicar || 100) / 100;
+  return acc + (Number(u.superficie_m2) * (resultados?.precioSugeridoUSD || 0) * coef);
+}, 0);
+
+// 2. Estructura de cierre del componente
+  return (
+    <main>
+      {/* Tu contenido JSX aquí */}
+    </main>
+  );
+}
   const unidadesFiltradas = filtroEstado === 'todos' ? unidades : unidades.filter(u => u.estado === filtroEstado);
 
   const totalPagado = cuotasOperacion.filter(c => c.estado === 'pagada').reduce((acc, c) => acc + Number(c.monto_usd), 0);

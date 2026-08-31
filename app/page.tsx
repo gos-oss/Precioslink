@@ -1,1488 +1,562 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import { useEffect, useState, useMemo } from 'react'
+import { supabase } from '../lib/supabase'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
-import {
-  FileSpreadsheet,
-  Upload,
-  Download,
-  Plus,
-  Trash2,
-  Edit2,
-  Search,
-  Check,
-  X,
-  AlertCircle,
-  Building2,
-  DollarSign,
-  Layers,
-  MapPin,
-  TrendingUp,
-  ArrowLeft,
-  Filter,
-  CheckCircle2,
-  PieChart as PieChartIcon,
-  RefreshCw,
-  Eye,
-  Sliders,
-  BarChart3,
-} from 'lucide-react'
-import StockExcelModal from '@/components/StockExcelModal'
-import { exportUnitsToExcel, downloadExcelTemplate } from '@/lib/excelStockParser'
-import { calcularPrecioSugerido, type PricingInputs } from '@/lib/mathEngine'
+import { Settings, Building2, DollarSign, Activity, BarChart3, Briefcase, MapPin, Map, PieChart as PieChartIcon, Box, AlertTriangle, Wallet, CalendarDays, ChevronRight } from 'lucide-react'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, Legend } from 'recharts'
 
-interface Unidad {
-  id: string
-  id_proyecto?: string
-  identificador: string
-  superficie_m2: number
-  estado: 'disponible' | 'reservada' | 'vendida'
-  porcentaje_aplicar?: number
-  precio_lista_usd?: number
-  created_at?: string
-}
+const COLORS = ['#f59e0b', '#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#14b8a6', '#ec4899', '#0ea5e9'];
 
-interface ProyectoInfo {
-  id: string
-  nombre: string
-  direccion?: string
-  superficie_total?: number
-  costo_duro_m2?: number
-  valor_terreno_usd?: number
-  canje_tierra_pct?: number
-  canje_honorarios_pct?: number
-  tipo_cambio?: number
-  margen_objetivo?: number
-  pct_admin?: number
-  pct_imprevistos?: number
-  pct_ajuste?: number
-}
+const meses = [
+  { val: 1, label: 'Ene' }, { val: 2, label: 'Feb' }, { val: 3, label: 'Mar' },
+  { val: 4, label: 'Abr' }, { val: 5, label: 'May' }, { val: 6, label: 'Jun' },
+  { val: 7, label: 'Jul' }, { val: 8, label: 'Ago' }, { val: 9, label: 'Sep' },
+  { val: 10, label: 'Oct' }, { val: 11, label: 'Nov' }, { val: 12, label: 'Dic' }
+]
+const anios = [2024, 2025, 2026, 2027, 2028, 2029, 2030]
 
-interface ConfiguracionGlobal {
-  tipo_cambio?: number
-  tasa_iibb?: number
-  tasa_tem?: number
-  tasa_iva?: number
-  comision_venta?: number
-}
+const generarMapaHTML = (proyectosFiltrados: any[]) => {
+  const proyectosStr = JSON.stringify(proyectosFiltrados);
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <style>
+        body { margin: 0; padding: 0; font-family: ui-sans-serif, system-ui, sans-serif; }
+        #map { height: 100vh; width: 100vw; background: #e7e5e4; }
+        .custom-popup .leaflet-popup-content-wrapper { border-radius: 8px; background: #0f172a; color: white; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); border: 1px solid #334155; }
+        .custom-popup .leaflet-popup-tip { background: #0f172a; }
+        .popup-title { font-weight: bold; color: #f59e0b; margin-bottom: 4px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em;}
+        .popup-price { color: #10b981; font-weight: 900; font-size: 14px;}
+      </style>
+    </head>
+    <body>
+      <div id="map"></div>
+      <script>
+        const map = L.map('map').setView([-26.82414, -65.2226], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
 
-// Defaults de fallback por si el proyecto todavía no tiene estos campos
-// cargados en la base (columnas nulas).
-const DEFAULT_PRICING_EXTRAS = {
-  margenObjetivo: 0.15,
-  pctAdmin: 0.05,
-  pctImprevistos: 0.05,
-  pctAjuste: 0,
-}
+        const proyectos = ${proyectosStr};
+        const markersData = {};
+        const markersList = [];
+        
+        const myIcon = L.icon({
+          iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+          iconSize: [25, 41],
+          iconAnchor: [12, 41],
+          popupAnchor: [1, -34],
+          shadowSize: [41, 41]
+        });
 
-export default function ProyectoDetallePage({ params }: { params?: { id: string } }) {
-  const routeParams = useParams()
-  const projectId = (routeParams?.id as string) || params?.id || ''
+        const cache = JSON.parse(localStorage.getItem('geocode_cache_v2') || '{}');
 
-  const [activeTab, setActiveTab] = useState<'pricing' | 'stock' | 'financiador' | 'cobros' | 'ubicacion'>('stock')
-  const [filtroEstado, setFiltroEstado] = useState<string>('todos')
-  const [busqueda, setBusqueda] = useState<string>('')
-  const [tcActivo, setTcActivo] = useState<number>(1530)
-  const [precioSugeridoUSD, setPrecioSugeridoUSD] = useState<number>(1746.62)
-  
-  const [proyecto, setProyecto] = useState<ProyectoInfo | null>(null)
-  const [configGlobal, setConfigGlobal] = useState<ConfiguracionGlobal | null>(null)
-  const [unidades, setUnidades] = useState<Unidad[]>([])
-  const [loading, setLoading] = useState<boolean>(true)
-  const [mensajeExito, setMensajeExito] = useState<string | null>(null)
-  const [isExcelModalOpen, setIsExcelModalOpen] = useState<boolean>(false)
-  const [guardandoPrecio, setGuardandoPrecio] = useState<boolean>(false)
+        window.addEventListener('message', function(event) {
+           if(event.data && event.data.type === 'zoomTo') {
+              const data = markersData[event.data.direccion];
+              if (data) {
+                 map.setView([data.lat, data.lon], 16, { animate: true, duration: 1.5 });
+                 data.marker.openPopup();
+              }
+           }
+        });
 
-  // Inputs editables de la Matriz de Pricing (se inicializan cuando llegan
-  // proyecto + configuración global, ver useEffect más abajo)
-  const [pricingForm, setPricingForm] = useState<PricingInputs | null>(null)
+        const procesarPines = async () => {
+          let cacheUpdated = false;
 
-  // Selección múltiple para acciones en lote
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  
-  // Edición rápida inline o modal
-  const [unidadEnEdicion, setUnidadEnEdicion] = useState<Unidad | null>(null)
+          for (const p of proyectos) {
+            if (!p.direccion) continue;
+            let lat, lon;
+            let direccionBusqueda = p.direccion;
+            if (!direccionBusqueda.toLowerCase().includes('tucuman') && !direccionBusqueda.toLowerCase().includes('tucumán')) {
+               direccionBusqueda = direccionBusqueda + ', Tucumán, Argentina';
+            }
+            
+            if (cache[p.direccion]) {
+              lat = cache[p.direccion].lat;
+              lon = cache[p.direccion].lon;
+            } else {
+              try {
+                const query = encodeURIComponent(direccionBusqueda);
+                const res = await fetch('https://nominatim.openstreetmap.org/search?format=json&q=' + query);
+                const data = await res.json();
+                if (data && data.length > 0) {
+                  lat = parseFloat(data[0].lat);
+                  lon = parseFloat(data[0].lon);
+                  cache[p.direccion] = { lat, lon };
+                  cacheUpdated = true;
+                }
+              } catch (e) { console.error('Error', p.nombre); }
+              await new Promise(r => setTimeout(r, 1200));
+            }
 
-  // Formulario nueva unidad manual
-  const [nuevaUnidad, setNuevaUnidad] = useState({
-    identificador: '',
-    superficie_m2: '',
-    estado: 'disponible' as 'disponible' | 'reservada' | 'vendida',
-    porcentaje_aplicar: '100',
-    precio_lista_usd: '',
-  })
-
-  // Cargar datos del proyecto y unidades
-  const fetchData = useCallback(async () => {
-    if (!projectId) return
-    setLoading(true)
-
-    try {
-      // 1. Obtener proyecto
-      const { data: dataProyecto } = await supabase
-        .from('proyectos')
-        .select('*')
-        .eq('id', projectId)
-        .single()
-
-      if (dataProyecto) {
-        setProyecto(dataProyecto)
-      }
-
-      // 2. Obtener configuración global (tipo de cambio, IIBB, TEM, IVA, comisión)
-      const { data: dataConfig } = await supabase
-        .from('configuracion_global')
-        .select('tipo_cambio, tasa_iibb, tasa_tem, tasa_iva, comision_venta')
-        .eq('id', 1)
-        .single()
-
-      if (dataConfig) {
-        setConfigGlobal(dataConfig)
-        if (dataConfig.tipo_cambio) {
-          setTcActivo(Number(dataConfig.tipo_cambio))
-        }
-      }
-
-      // 3. Obtener último precio histórico del proyecto
-      const { data: dataHistorial } = await supabase
-        .from('historial_versiones_proyecto')
-        .select('resultado_precio_promedio_usd')
-        .eq('id_proyecto', projectId)
-        .order('fecha_referencia', { ascending: false })
-        .limit(1)
-
-      if (dataHistorial && dataHistorial.length > 0 && dataHistorial[0].resultado_precio_promedio_usd) {
-        setPrecioSugeridoUSD(Number(dataHistorial[0].resultado_precio_promedio_usd))
-      }
-
-      // 4. Obtener unidades del proyecto
-      const { data: dataUnidades, error } = await supabase
-        .from('unidades')
-        .select('*')
-        .eq('id_proyecto', projectId)
-        .order('identificador', { ascending: true })
-
-      if (!error && dataUnidades) {
-        setUnidades(dataUnidades)
-      }
-    } catch (err) {
-      console.error('Error al cargar datos:', err)
-    } finally {
-      setLoading(false)
-    }
-  }, [projectId])
-
-  useEffect(() => {
-    fetchData()
-  }, [fetchData])
-
-  // KPIs de inventario
-  const totalUnidades = unidades.length
-  const unidadesDisponibles = unidades.filter((u) => u.estado === 'disponible')
-  const unidadesReservadas = unidades.filter((u) => u.estado === 'reservada')
-  const unidadesVendidas = unidades.filter((u) => u.estado === 'vendida')
-
-  const m2Totales = unidades.reduce((acc, u) => acc + Number(u.superficie_m2 || 0), 0)
-  const m2Disponibles = unidadesDisponibles.reduce((acc, u) => acc + Number(u.superficie_m2 || 0), 0)
-  const m2Vendidos = unidadesVendidas.reduce((acc, u) => acc + Number(u.superficie_m2 || 0), 0)
-
-  const valorInventarioUSD = unidadesDisponibles.reduce((acc, u) => {
-    if (u.precio_lista_usd && Number(u.precio_lista_usd) > 0) {
-      return acc + Number(u.precio_lista_usd)
-    }
-    const coef = Number(u.porcentaje_aplicar ?? 100) / 100
-    return acc + Number(u.superficie_m2 || 0) * precioSugeridoUSD * coef
-  }, 0)
-
-  const valorTotalStockUSD = unidades.reduce((acc, u) => {
-    if (u.precio_lista_usd && Number(u.precio_lista_usd) > 0) {
-      return acc + Number(u.precio_lista_usd)
-    }
-    const coef = Number(u.porcentaje_aplicar ?? 100) / 100
-    return acc + Number(u.superficie_m2 || 0) * precioSugeridoUSD * coef
-  }, 0)
-
-  // Inicializa el formulario de pricing una sola vez, cuando ya tenemos
-  // proyecto + configuración global + superficie real de las unidades.
-  // No pisa valores si el usuario ya está editando (pricingForm !== null
-  // solo se vuelve a sembrar mientras loading, evitamos loop con el flag).
-  useEffect(() => {
-    if (loading || !proyecto) return
-    setPricingForm((prev) => {
-      if (prev) return prev
-      return {
-        superficieVendible: proyecto.superficie_total || m2Totales || 0,
-        costoDuroM2: proyecto.costo_duro_m2 || 950,
-        valorTerrenoUSD: proyecto.valor_terreno_usd || 0,
-        canjeTierraPct: proyecto.canje_tierra_pct ?? 0.15,
-        canjeHonorariosPct: proyecto.canje_honorarios_pct ?? 0,
-        tasaIIBB: configGlobal?.tasa_iibb ?? 0.035,
-        tasaTEM: configGlobal?.tasa_tem ?? 0.02,
-        comisionVenta: configGlobal?.comision_venta ?? 0.03,
-        margenObjetivo: proyecto.margen_objetivo ?? DEFAULT_PRICING_EXTRAS.margenObjetivo,
-        tipoCambio: configGlobal?.tipo_cambio || tcActivo,
-        pctIVA: configGlobal?.tasa_iva ?? 0.105,
-        pctAdmin: proyecto.pct_admin ?? DEFAULT_PRICING_EXTRAS.pctAdmin,
-        pctImprevistos: proyecto.pct_imprevistos ?? DEFAULT_PRICING_EXTRAS.pctImprevistos,
-        pctAjuste: proyecto.pct_ajuste ?? DEFAULT_PRICING_EXTRAS.pctAjuste,
-      }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, proyecto, configGlobal])
-
-  // Recalcula en vivo cada vez que se toca un input de la matriz
-  const resultadoPricing = useMemo(() => {
-    if (!pricingForm) return null
-    try {
-      return calcularPrecioSugerido(pricingForm)
-    } catch (e) {
-      return null
-    }
-  }, [pricingForm])
-
-  const actualizarPricingField = (campo: keyof PricingInputs, valor: number) => {
-    setPricingForm((prev) => (prev ? { ...prev, [campo]: valor } : prev))
-  }
-
-  // Aplica el precio calculado al proyecto: lo guarda como precio activo
-  // (impacta valorización de stock) y deja registro en el historial.
-  const handleAplicarPrecio = async () => {
-    if (!resultadoPricing || !pricingForm) return
-    setGuardandoPrecio(true)
-    try {
-      await supabase
-        .from('proyectos')
-        .update({
-          costo_duro_m2: pricingForm.costoDuroM2,
-          valor_terreno_usd: pricingForm.valorTerrenoUSD,
-          canje_tierra_pct: pricingForm.canjeTierraPct,
-          canje_honorarios_pct: pricingForm.canjeHonorariosPct,
-          margen_objetivo: pricingForm.margenObjetivo,
-          pct_admin: pricingForm.pctAdmin,
-          pct_imprevistos: pricingForm.pctImprevistos,
-          pct_ajuste: pricingForm.pctAjuste,
-        })
-        .eq('id', projectId)
-
-      await supabase.from('historial_versiones_proyecto').insert([
-        {
-          id_proyecto: projectId,
-          fecha_referencia: new Date().toISOString(),
-          resultado_precio_promedio_usd: resultadoPricing.precioSugeridoUSD,
-        },
-      ])
-
-      setPrecioSugeridoUSD(resultadoPricing.precioSugeridoUSD)
-      mostrarNotificacion('Precio recalculado y aplicado al proyecto')
-    } catch (err) {
-      console.error('Error al aplicar precio:', err)
-      mostrarNotificacion('No se pudo guardar el precio (revisá la conexión)')
-    } finally {
-      setGuardandoPrecio(false)
-    }
-  }
-
-  // Filtrado y búsqueda
-  const unidadesFiltradas = useMemo(() => {
-    return unidades.filter((u) => {
-      const matchEstado = filtroEstado === 'todos' || u.estado === filtroEstado
-      const matchBusqueda =
-        !busqueda ||
-        u.identificador.toLowerCase().includes(busqueda.toLowerCase()) ||
-        String(u.superficie_m2).includes(busqueda)
-      return matchEstado && matchBusqueda
-    })
-  }, [unidades, filtroEstado, busqueda])
-
-  // Guardar unidad individual manual
-  const handleAgregarUnidad = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!nuevaUnidad.identificador || !nuevaUnidad.superficie_m2) return
-
-    const payload = {
-      id_proyecto: projectId,
-      identificador: nuevaUnidad.identificador.trim(),
-      superficie_m2: Number(nuevaUnidad.superficie_m2),
-      estado: nuevaUnidad.estado,
-      porcentaje_aplicar: Number(nuevaUnidad.porcentaje_aplicar || 100),
-      precio_lista_usd: nuevaUnidad.precio_lista_usd ? Number(nuevaUnidad.precio_lista_usd) : null,
-    }
-
-    const { data, error } = await supabase.from('unidades').insert([payload]).select()
-
-    if (!error && data && data.length > 0) {
-      setUnidades((prev) => [...prev, data[0]])
-      setNuevaUnidad({
-        identificador: '',
-        superficie_m2: '',
-        estado: 'disponible',
-        porcentaje_aplicar: '100',
-        precio_lista_usd: '',
-      })
-      mostrarNotificacion('¡Unidad agregada con éxito!')
-    } else {
-      // Fallback local si supabase no permite insert
-      const fallbackId = `temp_${Date.now()}`
-      const nuevaItem: Unidad = { id: fallbackId, ...payload, precio_lista_usd: payload.precio_lista_usd || undefined }
-      setUnidades((prev) => [...prev, nuevaItem])
-      setNuevaUnidad({
-        identificador: '',
-        superficie_m2: '',
-        estado: 'disponible',
-        porcentaje_aplicar: '100',
-        precio_lista_usd: '',
-      })
-      mostrarNotificacion('¡Unidad agregada correctamente!')
-    }
-  }
-
-  // Guardar edición de unidad
-  const handleGuardarEdicion = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!unidadEnEdicion) return
-
-    const { error } = await supabase
-      .from('unidades')
-      .update({
-        identificador: unidadEnEdicion.identificador,
-        superficie_m2: Number(unidadEnEdicion.superficie_m2),
-        porcentaje_aplicar: Number(unidadEnEdicion.porcentaje_aplicar || 100),
-        estado: unidadEnEdicion.estado,
-        precio_lista_usd: unidadEnEdicion.precio_lista_usd ? Number(unidadEnEdicion.precio_lista_usd) : null,
-      })
-      .eq('id', unidadEnEdicion.id)
-
-    setUnidades((prev) =>
-      prev.map((u) => (u.id === unidadEnEdicion.id ? unidadEnEdicion : u))
-    )
-    setUnidadEnEdicion(null)
-    mostrarNotificacion('Unidad actualizada con éxito')
-  }
-
-  // Eliminar unidad individual
-  const handleEliminarUnidad = async (id: string, identificador: string) => {
-    if (!confirm(`¿Estás seguro de eliminar la unidad "${identificador}"?`)) return
-
-    await supabase.from('unidades').delete().eq('id', id)
-    setUnidades((prev) => prev.filter((u) => u.id !== id))
-    setSelectedIds((prev) => prev.filter((item) => item !== id))
-    mostrarNotificacion(`Unidad "${identificador}" eliminada`)
-  }
-
-  // Cambiar estado rápido
-  const handleCambiarEstadoRapido = async (id: string, nuevoEstado: 'disponible' | 'reservada' | 'vendida') => {
-    await supabase.from('unidades').update({ estado: nuevoEstado }).eq('id', id)
-    setUnidades((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, estado: nuevoEstado } : u))
-    )
-  }
-
-  // Acciones por lote
-  const handleToggleSelectAll = () => {
-    if (selectedIds.length === unidadesFiltradas.length) {
-      setSelectedIds([])
-    } else {
-      setSelectedIds(unidadesFiltradas.map((u) => u.id))
-    }
-  }
-
-  const handleToggleSelect = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    )
-  }
-
-  const handleBulkChangeStatus = async (nuevoEstado: 'disponible' | 'reservada' | 'vendida') => {
-    if (selectedIds.length === 0) return
-    await supabase.from('unidades').update({ estado: nuevoEstado }).in('id', selectedIds)
-    setUnidades((prev) =>
-      prev.map((u) => (selectedIds.includes(u.id) ? { ...u, estado: nuevoEstado } : u))
-    )
-    mostrarNotificacion(`${selectedIds.length} unidades marcadas como "${nuevoEstado}"`)
-    setSelectedIds([])
-  }
-
-  const handleBulkDelete = async () => {
-    if (selectedIds.length === 0) return
-    if (!confirm(`¿Eliminar las ${selectedIds.length} unidades seleccionadas?`)) return
-
-    await supabase.from('unidades').delete().in('id', selectedIds)
-    setUnidades((prev) => prev.filter((u) => !selectedIds.includes(u.id)))
-    mostrarNotificacion(`${selectedIds.length} unidades eliminadas`)
-    setSelectedIds([])
-  }
-
-  // Guardado en lote desde el Modal de Excel
-  const handleBatchSaveFromExcel = async (
-    unitsToInsert: any[],
-    unitsToUpdate: any[],
-    replaceAll: boolean
-  ): Promise<{ success: boolean; error?: string }> => {
-    try {
-      if (replaceAll) {
-        // Eliminar todas las unidades del proyecto primero
-        const { error: delError } = await supabase
-          .from('unidades')
-          .delete()
-          .eq('id_proyecto', projectId)
-
-        if (delError) {
-          console.warn('Nota sobre delete en supabase:', delError)
-        }
-      }
-
-      // 1. Ejecutar inserciones
-      if (unitsToInsert.length > 0) {
-        const { error: insError } = await supabase
-          .from('unidades')
-          .insert(unitsToInsert)
-
-        if (insError) {
-          console.warn('Error insertando unidades:', insError)
-        }
-      }
-
-      // 2. Ejecutar actualizaciones
-      if (unitsToUpdate.length > 0 && !replaceAll) {
-        for (const item of unitsToUpdate) {
-          const { error: updError } = await supabase
-            .from('unidades')
-            .update({
-              identificador: item.identificador,
-              superficie_m2: item.superficie_m2,
-              porcentaje_aplicar: item.porcentaje_aplicar,
-              estado: item.estado,
-              precio_lista_usd: item.precio_lista_usd,
-            })
-            .eq('id', item.id)
-
-          if (updError) {
-            console.warn('Error actualizando unidad:', item.identificador, updError)
+            if (lat && lon) {
+              const marker = L.marker([lat, lon], {icon: myIcon}).addTo(map);
+              marker.bindPopup(
+                '<div class="popup-title">' + p.nombre + '</div>' +
+                '<div style="font-size:11px; margin-bottom:6px; color:#94a3b8;">' + p.direccion + '</div>' +
+                '<div class="popup-price">Desde $' + p.ultimoPrecioUSD + '/m²</div>',
+                { className: 'custom-popup' }
+              );
+              markersData[p.direccion] = { lat, lon, marker };
+              markersList.push([lat, lon]);
+            }
           }
+          
+          if (cacheUpdated) localStorage.setItem('geocode_cache_v2', JSON.stringify(cache));
+          if (markersList.length > 0) map.fitBounds(markersList, { padding: [50, 50], maxZoom: 15 });
+        };
+        procesarPines();
+      </script>
+    </body>
+    </html>
+  `;
+};
+
+export default function Home() {
+  const [proyectos, setProyectos] = useState<any[]>([])
+  const [historial, setHistorial] = useState<any[]>([])
+  const [resumenPrecios, setResumenPrecios] = useState<any[]>([])
+  const [ventas, setVentas] = useState<any[]>([])
+  const [cargando, setCargando] = useState(true)
+  
+  const [proyectoSeleccionadoId, setProyectoSeleccionadoId] = useState<string>('todos')
+  const [mapaActivo, setMapaActivo] = useState<string>('San Miguel de Tucumán, Argentina')
+  const [proyectoActivoMapa, setProyectoActivoMapa] = useState<string>('')
+
+  // Estados para el Filtro de Ventas
+  const currentDate = new Date()
+  const [filtroMes, setFiltroMes] = useState(currentDate.getMonth() + 1)
+  const [filtroAnio, setFiltroAnio] = useState(currentDate.getFullYear())
+
+  useEffect(() => {
+    async function fetchData() {
+      const { data: dataProyectos } = await supabase.from('proyectos').select('*').order('nombre', { ascending: true })
+      const { data: dataHistorial } = await supabase.from('historial_versiones_proyecto').select('*, proyectos(nombre)').order('fecha_referencia', { ascending: true })
+      const { data: dataUnidades } = await supabase.from('unidades').select('*')
+      const { data: dataVentas } = await supabase.from('ventas').select('*') // Consultamos ventas
+
+      if (dataVentas) setVentas(dataVentas)
+
+      if (dataProyectos) {
+        setProyectos(dataProyectos)
+        const primerConDireccion = dataProyectos.find(p => p.direccion)
+        if (primerConDireccion) {
+          setMapaActivo(primerConDireccion.direccion)
+          setProyectoActivoMapa(primerConDireccion.id)
         }
       }
 
-      // Refrescar datos
-      await fetchData()
-      return { success: true }
-    } catch (err: any) {
-      return { success: false, error: err.message || 'Error guardando en Supabase' }
+      if (dataHistorial) {
+        const historialFormateado = dataHistorial.map(h => {
+          const dateString = h.fecha_referencia || new Date().toISOString().split('T')[0]
+          const [year, month, day] = dateString.split('-')
+          const dateObj = new Date(Number(year), Number(month) - 1, Number(day))
+          
+          return {
+            ...h,
+            resultado_precio_promedio_usd: Math.round(Number(h.resultado_precio_promedio_usd)),
+            fecha: dateObj.toLocaleDateString('es-AR', { month: 'short', year: '2-digit' }),
+            nombreProyecto: h.proyectos?.nombre || 'Desconocido'
+          }
+        })
+        setHistorial(historialFormateado)
+
+        if (dataProyectos) {
+          const resumen = dataProyectos.map(p => {
+            const historialProyecto = historialFormateado.filter(h => h.id_proyecto === p.id)
+            const ultimoRegistro = historialProyecto.length > 0 ? historialProyecto[historialProyecto.length - 1] : null
+            const ultimoPrecioUSD = ultimoRegistro ? Math.round(Number(ultimoRegistro.resultado_precio_promedio_usd)) : 0
+            
+            let m2Disponibles = 0
+            if (dataUnidades) {
+              const unidadesDisponibles = dataUnidades.filter(u => u.id_proyecto === p.id && u.estado === 'disponible')
+              m2Disponibles = unidadesDisponibles.reduce((acc, u) => acc + Number(u.superficie_m2), 0)
+            }
+            
+            const valorInventario = Math.round(m2Disponibles * ultimoPrecioUSD)
+
+            return {
+              nombre: p.nombre,
+              id: p.id,
+              ultimoPrecioUSD: ultimoPrecioUSD,
+              ultimaFecha: ultimoRegistro ? ultimoRegistro.fecha : '-',
+              direccion: p.direccion || '',
+              m2Disponibles,
+              valorInventario
+            }
+          }).filter(r => r.ultimoPrecioUSD > 0)
+          
+          setResumenPrecios(resumen.sort((a, b) => b.ultimoPrecioUSD - a.ultimoPrecioUSD))
+        }
+      }
+      setCargando(false)
     }
-  }
+    fetchData()
+  }, [])
 
-  const handleImportSuccess = (inserted: number, updated: number) => {
-    mostrarNotificacion(`¡Excel importado! ${inserted} agregadas, ${updated} actualizadas.`)
-  }
+  const datosGraficoLinea = useMemo(() => {
+    if (proyectoSeleccionadoId === 'todos') {
+      const agrupado = historial.reduce((acc, curr) => {
+        const ref = curr.fecha_referencia;
+        if (!acc[ref]) acc[ref] = { fecha_referencia: ref, fecha: curr.fecha, sum: 0, count: 0 };
+        acc[ref].sum += curr.resultado_precio_promedio_usd;
+        acc[ref].count += 1;
+        return acc;
+      }, {} as any);
+      
+      return Object.values(agrupado)
+        .sort((a: any, b: any) => a.fecha_referencia.localeCompare(b.fecha_referencia))
+        .map((item: any) => ({
+          fecha: item.fecha,
+          resultado_precio_promedio_usd: Math.round(item.sum / item.count)
+        }));
+    } else {
+      return historial.filter(h => h.id_proyecto === proyectoSeleccionadoId);
+    }
+  }, [historial, proyectoSeleccionadoId]);
 
-  const mostrarNotificacion = (msg: string) => {
-    setMensajeExito(msg)
-    setTimeout(() => {
-      setMensajeExito(null)
-    }, 4000)
-  }
+  // CALCULO DE VENTAS POR PERIODO SELECCIONADO
+  const totalVentasPeriodo = useMemo(() => {
+    return ventas.filter(v => {
+      const fecha = new Date(v.fecha_venta);
+      return (fecha.getMonth() + 1) === filtroMes && fecha.getFullYear() === filtroAnio;
+    }).reduce((acc, v) => acc + Number(v.precio_venta), 0);
+  }, [ventas, filtroMes, filtroAnio]);
 
-  const nombreProyecto = proyecto?.nombre || 'Detalle de Proyecto'
-  const direccionProyecto = proyecto?.direccion || 'San Miguel de Tucumán, Argentina'
+  const enfocarProyectoEnMapa = (id: string, direccion: string) => {
+    setProyectoActivoMapa(id);
+    const iframe = document.getElementById('mapa-global') as HTMLIFrameElement;
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage({ type: 'zoomTo', direccion }, '*');
+    }
+  };
+
+  const proyectosConDireccion = useMemo(() => resumenPrecios.filter(r => r.direccion), [resumenPrecios]);
+  const htmlMapa = useMemo(() => generarMapaHTML(proyectosConDireccion), [proyectosConDireccion]);
+
+  if (cargando) return (
+    <div className="min-h-screen bg-stone-50 flex items-center justify-center">
+      <div className="flex flex-col items-center space-y-4">
+        <Activity className="w-8 h-8 text-slate-800 animate-pulse" />
+        <p className="text-slate-500 font-bold tracking-widest uppercase text-xs">Cargando LINK...</p>
+      </div>
+    </div>
+  )
+
+  const precioPromedioPortafolio = resumenPrecios.length > 0 
+    ? Math.round(resumenPrecios.reduce((acc, curr) => acc + curr.ultimoPrecioUSD, 0) / resumenPrecios.length)
+    : 0;
+
+  const valorTotalInventario = resumenPrecios.reduce((acc, curr) => acc + curr.valorInventario, 0);
+  const m2TotalesDisponibles = Math.round(resumenPrecios.reduce((acc, curr) => acc + curr.m2Disponibles, 0));
+  
+  const datosTorta = resumenPrecios.filter(r => r.valorInventario > 0).sort((a, b) => b.valorInventario - a.valorInventario);
+  const formatTooltipPie = (value: number) => [`$${value.toLocaleString()} USD`, 'Valor Inventario'];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-16">
-      {/* Notificación flotante de éxito */}
-      {mensajeExito && (
-        <div className="fixed top-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl border border-amber-500/40 flex items-center gap-3 animate-in slide-in-from-top-4 duration-300">
-          <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-          <span className="text-xs font-bold">{mensajeExito}</span>
-        </div>
-      )}
-
-      {/* Header Principal */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex flex-wrap justify-between items-center gap-4">
-            <div>
-              <Link
-                href="/"
-                className="inline-flex items-center gap-1 text-amber-600 hover:text-amber-700 text-xs font-black uppercase tracking-wider mb-1 transition-colors"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" /> Volver al Portafolio
-              </Link>
-              <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                <Building2 className="w-7 h-7 text-amber-500" />
-                {nombreProyecto}
-              </h1>
-              {direccionProyecto && (
-                <p className="text-xs text-slate-500 flex items-center gap-1 font-medium mt-0.5">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400" /> {direccionProyecto}
-                </p>
-              )}
-            </div>
-
-            {/* Badges de Parámetros Activos */}
-            <div className="flex items-center gap-3">
-              <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-right shadow-2xs">
-                <span className="text-[10px] text-slate-400 font-bold block uppercase tracking-wider">
-                  PRECIO M² PROMEDIO
-                </span>
-                <span className="text-lg font-black text-slate-900">
-                  ${Math.round(precioSugeridoUSD).toLocaleString('es-AR')}{' '}
-                  <span className="text-xs font-bold text-slate-500">USD</span>
-                </span>
-              </div>
-
-              <div className="bg-amber-50 border border-amber-200/80 rounded-xl px-4 py-2 text-right shadow-2xs">
-                <span className="text-[10px] text-amber-700 font-bold block uppercase tracking-wider">
-                  T.C. OFICIAL
-                </span>
-                <span className="text-lg font-black text-amber-600">
-                  ${tcActivo.toLocaleString('es-AR')}
-                </span>
-              </div>
-            </div>
+    <div className="flex h-screen bg-stone-50 overflow-hidden font-sans selection:bg-amber-100">
+      
+      {/* SIDEBAR (Menú Lateral) */}
+      <aside className="w-80 bg-slate-950 border-r border-slate-800 flex-shrink-0 flex flex-col hidden lg:flex">
+        {/* Header del Sidebar con el Banner */}
+        <div className="p-6 border-b border-slate-800/80">
+          <div className="flex items-center justify-center h-20 overflow-hidden rounded-lg border border-slate-700/50 bg-black">
+            <img 
+              src="/link-banner.png" 
+              alt="Banner LINK" 
+              className="h-full w-auto object-cover"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+                e.currentTarget.parentElement!.innerHTML = '<span class="text-white font-black text-2xl px-8">LINK</span>';
+              }}
+            />
           </div>
+        </div>
 
-          {/* Navegación por pestañas */}
-          <div className="border-t border-slate-100 mt-4 pt-2 flex gap-2 overflow-x-auto">
-            {(
-              [
-                { id: 'stock', label: 'Stock & Unidades', icon: Layers },
-                { id: 'pricing', label: 'Matriz de Pricing', icon: DollarSign },
-                { id: 'financiador', label: 'Financiador', icon: TrendingUp },
-                { id: 'cobros', label: 'Cobros y Cuotas', icon: BarChart3 },
-                { id: 'ubicacion', label: 'Ubicación y Mapa', icon: MapPin },
-              ] as const
-            ).map((tab) => {
-              const Icon = tab.icon
-              const isActive = activeTab === tab.id
+        {/* Lista de Proyectos */}
+        <div className="flex-1 overflow-y-auto p-6" style={{ scrollbarWidth: 'thin', scrollbarColor: '#334155 transparent' }}>
+          <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-4">Portafolio de Proyectos</h3>
+          <div className="space-y-3">
+            {proyectos.map((proyecto) => {
+              const resumen = resumenPrecios.find(r => r.id === proyecto.id)
               return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`pb-2.5 pt-2 px-4 text-xs font-extrabold uppercase flex items-center gap-2 border-b-2 transition-all whitespace-nowrap ${
-                    isActive
-                      ? 'border-amber-500 text-amber-600 bg-amber-50/60 rounded-t-lg'
-                      : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-amber-500' : 'text-slate-400'}`} />
-                  {tab.label}
-                  {tab.id === 'stock' && (
-                    <span className="ml-1 px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-700 text-[10px] font-black">
-                      {unidades.length}
-                    </span>
-                  )}
-                </button>
+                <Link key={proyecto.id} href={`/proyecto/${proyecto.id}`} className="group block p-4 rounded-xl border border-slate-800 bg-slate-900/50 hover:bg-slate-800 hover:border-amber-500/50 transition-all">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-200 group-hover:text-amber-500 transition-colors line-clamp-1">{proyecto.nombre}</h4>
+                      <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest font-semibold">
+                        {resumen ? `M2: $${resumen.ultimoPrecioUSD.toLocaleString()}` : 'Sin cotizar'}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-amber-500 transition-transform group-hover:translate-x-1" />
+                  </div>
+                </Link>
               )
             })}
           </div>
         </div>
-      </div>
 
-      {/* Contenido Principal */}
-      <div className="max-w-7xl mx-auto px-6 pt-6">
-        {/* PESTAÑA STOCK */}
-        {activeTab === 'stock' && (
-          <div className="space-y-6">
-            {/* Banner de Acciones Excel */}
-            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-3xl p-6 md:p-8 text-white shadow-xl border border-slate-700/60 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-              <div className="space-y-2 max-w-xl">
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-400 text-xs font-extrabold uppercase tracking-wider">
-                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                  Módulo de Gestión de Unidades
-                </div>
-                <h2 className="text-2xl font-black text-white tracking-tight">
-                  Incorporar Stock desde Excel
-                </h2>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  Importa hojas de cálculo con las unidades de <span className="text-amber-300 font-bold">{nombreProyecto}</span>. Mapea identificadores, superficies en m², coeficientes y estado de disponibilidad en segundos.
-                </p>
-              </div>
+        <div className="p-6 border-t border-slate-800">
+          <Link href="/configuracion" className="flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-300 px-4 py-3 rounded-xl border border-slate-700 transition-all font-medium text-xs w-full">
+            <Settings className="w-4 h-4 mr-2" /> Configuración Global
+          </Link>
+        </div>
+      </aside>
 
-              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-                <button
-                  onClick={() => setIsExcelModalOpen(true)}
-                  className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  <Upload className="w-4 h-4" />
-                  Importar Excel (.xlsx)
-                </button>
-
-                <button
-                  onClick={() => downloadExcelTemplate(nombreProyecto)}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition-colors"
-                  title="Descargar plantilla de Excel vacía con ejemplos"
-                >
-                  <Download className="w-4 h-4 text-amber-400" />
-                  Plantilla
-                </button>
-
-                <button
-                  onClick={() => exportUnitsToExcel(unidades, nombreProyecto)}
-                  disabled={unidades.length === 0}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition-colors disabled:opacity-40"
-                  title="Exportar unidades actuales a Excel"
-                >
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                  Exportar
-                </button>
-              </div>
-            </div>
-
-            {/* Tarjetas de Métricas de Stock */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-                <div className="flex justify-between items-start">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Unidades Totales
-                  </span>
-                  <span className="p-1.5 rounded-lg bg-slate-100 text-slate-600">
-                    <Layers className="w-4 h-4" />
-                  </span>
-                </div>
-                <div className="text-2xl font-black text-slate-900 mt-2">{totalUnidades}</div>
-                <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
-                  <span className="text-emerald-600 font-bold">{unidadesDisponibles.length} disponibles</span>
-                  <span>•</span>
-                  <span className="text-amber-600 font-bold">{unidadesReservadas.length} res.</span>
-                  <span>•</span>
-                  <span className="text-slate-600 font-bold">{unidadesVendidas.length} vend.</span>
-                </div>
-              </div>
-
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-                <div className="flex justify-between items-start">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600">
-                    M² Libres (Disponibles)
-                  </span>
-                  <span className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600">
-                    <Check className="w-4 h-4" />
-                  </span>
-                </div>
-                <div className="text-2xl font-black text-emerald-700 mt-2">
-                  {m2Disponibles.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}{' '}
-                  <span className="text-xs font-bold text-slate-400">m²</span>
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1">
-                  de {m2Totales.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} m² totales
-                </div>
-              </div>
-
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-                <div className="flex justify-between items-start">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-600">
-                    Inventario Libre (USD)
-                  </span>
-                  <span className="p-1.5 rounded-lg bg-amber-50 text-amber-600">
-                    <DollarSign className="w-4 h-4" />
-                  </span>
-                </div>
-                <div className="text-2xl font-black text-amber-600 mt-2">
-                  ${Math.round(valorInventarioUSD).toLocaleString('es-AR')}
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1">
-                  a ${Math.round(precioSugeridoUSD)} USD/m² base
-                </div>
-              </div>
-
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs">
-                <div className="flex justify-between items-start">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Valor Total Proyecto (USD)
-                  </span>
-                  <span className="p-1.5 rounded-lg bg-slate-100 text-slate-600">
-                    <Building2 className="w-4 h-4" />
-                  </span>
-                </div>
-                <div className="text-2xl font-black text-slate-900 mt-2">
-                  ${Math.round(valorTotalStockUSD).toLocaleString('es-AR')}
-                </div>
-                <div className="text-[11px] text-slate-500 mt-1">
-                  100% de la superficie vendible
-                </div>
-              </div>
-            </div>
-
-            {/* Grid: Formulario Manual + Tabla de Inventario */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Formulario Agregar Unidad Manual */}
-              <div className="lg:col-span-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-2xs h-fit space-y-4">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                  <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                    <span className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center text-xs">
-                      +
-                    </span>
-                    Carga Manual de Unidad
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => setIsExcelModalOpen(true)}
-                    className="text-[11px] font-bold text-amber-600 hover:text-amber-700 underline"
-                  >
-                    ¿O usar Excel?
-                  </button>
-                </div>
-
-                <form onSubmit={handleAgregarUnidad} className="space-y-3.5">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">
-                      Identificador / Depto <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={nuevaUnidad.identificador}
-                      onChange={(e) => setNuevaUnidad({ ...nuevaUnidad, identificador: e.target.value })}
-                      placeholder="Ej: 4º A, Cochera 12"
-                      className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 bg-slate-50"
-                      required
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">
-                        Superficie (m²) <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={nuevaUnidad.superficie_m2}
-                        onChange={(e) => setNuevaUnidad({ ...nuevaUnidad, superficie_m2: e.target.value })}
-                        placeholder="Ej: 54.5"
-                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 bg-slate-50"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">
-                        % Coeficiente
-                      </label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={nuevaUnidad.porcentaje_aplicar}
-                        onChange={(e) => setNuevaUnidad({ ...nuevaUnidad, porcentaje_aplicar: e.target.value })}
-                        placeholder="100"
-                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 bg-slate-50"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">Estado</label>
-                      <select
-                        value={nuevaUnidad.estado}
-                        onChange={(e) => setNuevaUnidad({ ...nuevaUnidad, estado: e.target.value as any })}
-                        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 bg-slate-50 text-slate-800"
-                      >
-                        <option value="disponible">Disponible</option>
-                        <option value="reservada">Reservada</option>
-                        <option value="vendida">Vendida</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-600 mb-1">
-                        Precio Lista (USD)
-                      </label>
-                      <input
-                        type="number"
-                        value={nuevaUnidad.precio_lista_usd}
-                        onChange={(e) => setNuevaUnidad({ ...nuevaUnidad, precio_lista_usd: e.target.value })}
-                        placeholder="Opcional"
-                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 bg-slate-50"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="w-full mt-2 bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 rounded-xl text-xs transition-all shadow-md active:scale-[0.98] flex items-center justify-center gap-2"
-                  >
-                    <Plus className="w-4 h-4 text-amber-400" />
-                    Guardar Unidad
-                  </button>
-                </form>
-
-                {/* Tip de carga masiva */}
-                <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200/80 text-amber-900 text-xs flex items-start gap-2">
-                  <FileSpreadsheet className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-[11px] leading-relaxed">
-                    <strong>Tip:</strong> Si tienes muchas unidades en un Excel, usa el botón{' '}
-                    <span className="font-bold underline cursor-pointer" onClick={() => setIsExcelModalOpen(true)}>
-                      Importar Excel
-                    </span>{' '}
-                    para cargarlas todas juntas en 1 segundo.
-                  </p>
-                </div>
-              </div>
-
-              {/* Tabla de Inventario de Unidades */}
-              <div className="lg:col-span-8 bg-white p-6 rounded-3xl border border-slate-200 shadow-2xs space-y-4">
-                {/* Barra de Filtros y Búsqueda */}
-                <div className="flex flex-wrap justify-between items-center gap-3">
-                  <div className="flex items-center gap-3 flex-1 min-w-[200px]">
-                    <div className="relative flex-1 max-w-xs">
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
-                      <input
-                        type="text"
-                        value={busqueda}
-                        onChange={(e) => setBusqueda(e.target.value)}
-                        placeholder="Buscar por depto o m²..."
-                        className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 bg-slate-50"
-                      />
-                      {busqueda && (
-                        <button
-                          onClick={() => setBusqueda('')}
-                          className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-
-                    <select
-                      value={filtroEstado}
-                      onChange={(e) => setFiltroEstado(e.target.value)}
-                      className="px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 uppercase focus:outline-none bg-slate-50"
-                    >
-                      <option value="todos">Todos ({unidades.length})</option>
-                      <option value="disponible">Disponibles ({unidadesDisponibles.length})</option>
-                      <option value="reservada">Reservadas ({unidadesReservadas.length})</option>
-                      <option value="vendida">Vendidas ({unidadesVendidas.length})</option>
-                    </select>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={fetchData}
-                      className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 text-xs transition-colors"
-                      title="Refrescar lista"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Barra de Acciones Masivas si hay seleccionados */}
-                {selectedIds.length > 0 && (
-                  <div className="p-3 rounded-2xl bg-slate-900 text-white flex flex-wrap justify-between items-center gap-3 animate-in fade-in duration-150">
-                    <div className="text-xs font-bold flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 flex items-center justify-center text-[10px] font-black">
-                        {selectedIds.length}
-                      </span>
-                      <span>unidades seleccionadas</span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-slate-400 font-semibold">Marcar como:</span>
-                      <button
-                        onClick={() => handleBulkChangeStatus('disponible')}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white text-[11px] font-bold transition-colors"
-                      >
-                        Disponible
-                      </button>
-                      <button
-                        onClick={() => handleBulkChangeStatus('reservada')}
-                        className="px-2.5 py-1 rounded-lg bg-amber-600/80 hover:bg-amber-600 text-white text-[11px] font-bold transition-colors"
-                      >
-                        Reservada
-                      </button>
-                      <button
-                        onClick={() => handleBulkChangeStatus('vendida')}
-                        className="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-bold transition-colors"
-                      >
-                        Vendida
-                      </button>
-                      <button
-                        onClick={handleBulkDelete}
-                        className="px-2.5 py-1 rounded-lg bg-rose-600/80 hover:bg-rose-600 text-white text-[11px] font-bold transition-colors flex items-center gap-1"
-                      >
-                        <Trash2 className="w-3 h-3" /> Eliminar
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Tabla de Unidades */}
-                <div className="overflow-x-auto border border-slate-200 rounded-2xl">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-200 bg-slate-100/70 text-slate-500 uppercase font-bold">
-                        <th className="py-3 px-3 w-8">
-                          <input
-                            type="checkbox"
-                            checked={
-                              unidadesFiltradas.length > 0 &&
-                              selectedIds.length === unidadesFiltradas.length
-                            }
-                            onChange={handleToggleSelectAll}
-                            className="rounded text-amber-500 focus:ring-amber-500"
-                          />
-                        </th>
-                        <th className="py-3 px-3">Unidad</th>
-                        <th className="py-3 px-3">Superficie</th>
-                        <th className="py-3 px-3">% Coef</th>
-                        <th className="py-3 px-3">Estado</th>
-                        <th className="py-3 px-3 text-right">Valor Estimado (USD)</th>
-                        <th className="py-3 px-3 text-center">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white">
-                      {loading ? (
-                        <tr>
-                          <td colSpan={7} className="py-12 text-center text-slate-400 font-semibold">
-                            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-slate-400" />
-                            Cargando inventario...
-                          </td>
-                        </tr>
-                      ) : unidadesFiltradas.length > 0 ? (
-                        unidadesFiltradas.map((u) => {
-                          const valorEstimado =
-                            u.precio_lista_usd && Number(u.precio_lista_usd) > 0
-                              ? Number(u.precio_lista_usd)
-                              : Number(u.superficie_m2 || 0) *
-                                precioSugeridoUSD *
-                                (Number(u.porcentaje_aplicar || 100) / 100)
-
-                          const isSelected = selectedIds.includes(u.id)
-
-                          return (
-                            <tr
-                              key={u.id}
-                              className={`hover:bg-slate-50/80 transition-colors ${
-                                isSelected ? 'bg-amber-50/40' : ''
-                              }`}
-                            >
-                              <td className="py-3 px-3">
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => handleToggleSelect(u.id)}
-                                  className="rounded text-amber-500 focus:ring-amber-500"
-                                />
-                              </td>
-                              <td className="py-3 px-3 font-extrabold text-slate-900">
-                                {u.identificador}
-                              </td>
-                              <td className="py-3 px-3 font-semibold text-slate-700">
-                                {u.superficie_m2} m²
-                              </td>
-                              <td className="py-3 px-3 font-bold text-slate-600">
-                                {u.porcentaje_aplicar || 100}%
-                              </td>
-                              <td className="py-3 px-3">
-                                <select
-                                  value={u.estado}
-                                  onChange={(e) =>
-                                    handleCambiarEstadoRapido(u.id, e.target.value as any)
-                                  }
-                                  className={`px-2 py-0.5 rounded-md text-[11px] font-extrabold uppercase border-0 cursor-pointer focus:ring-2 focus:ring-amber-500 ${
-                                    u.estado === 'disponible'
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : u.estado === 'reservada'
-                                      ? 'bg-amber-100 text-amber-800'
-                                      : 'bg-slate-100 text-slate-600'
-                                  }`}
-                                >
-                                  <option value="disponible">Disponible</option>
-                                  <option value="reservada">Reservada</option>
-                                  <option value="vendida">Vendida</option>
-                                </select>
-                              </td>
-                              <td className="py-3 px-3 text-right font-black text-slate-900">
-                                ${Math.round(valorEstimado).toLocaleString('es-AR')} USD
-                              </td>
-                              <td className="py-3 px-3 text-center">
-                                <div className="flex items-center justify-center gap-1">
-                                  <button
-                                    onClick={() => setUnidadEnEdicion(u)}
-                                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
-                                    title="Editar unidad"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => handleEliminarUnidad(u.id, u.identificador)}
-                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                                    title="Eliminar unidad"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          )
-                        })
-                      ) : (
-                        <tr>
-                          <td colSpan={7} className="py-12 text-center text-slate-400">
-                            <div className="max-w-xs mx-auto space-y-2">
-                              <Layers className="w-8 h-8 text-slate-300 mx-auto" />
-                              <p className="font-bold text-slate-600">No hay unidades en esta vista</p>
-                              <p className="text-xs text-slate-400">
-                                Agrega unidades usando el formulario manual o importa directamente un Excel.
-                              </p>
-                              <button
-                                onClick={() => setIsExcelModalOpen(true)}
-                                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 text-xs font-bold"
-                              >
-                                <Upload className="w-3.5 h-3.5" /> Importar Excel
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* PESTAÑA PRICING */}
-        {activeTab === 'pricing' && (
-          <div className="space-y-6">
-            {!pricingForm || !resultadoPricing ? (
-              <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-2xs text-center text-sm text-slate-400">
-                Cargando parámetros de pricing…
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                {/* Columna izquierda: inputs editables */}
-                <div className="lg:col-span-3 bg-white p-8 rounded-3xl border border-slate-200 shadow-2xs space-y-6">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-                    <div>
-                      <h2 className="text-xl font-black text-slate-900">Matriz de Precios</h2>
-                      <p className="text-xs text-slate-500">
-                        Ajustá los parámetros y el precio se recalcula en vivo
-                      </p>
-                    </div>
-                    <Sliders className="w-5 h-5 text-amber-500" />
-                  </div>
-
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Costos físicos y terreno</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <CampoPricing
-                        label="Superficie vendible (m²)"
-                        value={pricingForm.superficieVendible}
-                        onChange={(v) => actualizarPricingField('superficieVendible', v)}
-                      />
-                      <CampoPricing
-                        label="Costo duro (USD/m²)"
-                        value={pricingForm.costoDuroM2}
-                        onChange={(v) => actualizarPricingField('costoDuroM2', v)}
-                      />
-                      <CampoPricing
-                        label="Valor terreno (USD)"
-                        value={pricingForm.valorTerrenoUSD}
-                        onChange={(v) => actualizarPricingField('valorTerrenoUSD', v)}
-                      />
-                      <CampoPricing
-                        label="Tipo de cambio (ARS)"
-                        value={pricingForm.tipoCambio}
-                        onChange={(v) => actualizarPricingField('tipoCambio', v)}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Canjes</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <CampoPricing
-                        label="Canje tierra (%)"
-                        value={pricingForm.canjeTierraPct * 100}
-                        onChange={(v) => actualizarPricingField('canjeTierraPct', v / 100)}
-                        step={0.5}
-                      />
-                      <CampoPricing
-                        label="Canje honorarios (%)"
-                        value={pricingForm.canjeHonorariosPct * 100}
-                        onChange={(v) => actualizarPricingField('canjeHonorariosPct', v / 100)}
-                        step={0.5}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-xs font-bold text-slate-400 uppercase">
-                        Impuestos y comercialización
-                      </h3>
-                      <Link href="/configuracion" className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 uppercase">
-                        Editar valores globales
-                      </Link>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <CampoPricing
-                        label="IIBB (%)"
-                        value={pricingForm.tasaIIBB * 100}
-                        onChange={(v) => actualizarPricingField('tasaIIBB', v / 100)}
-                        step={0.1}
-                      />
-                      <CampoPricing
-                        label="TEM (%)"
-                        value={pricingForm.tasaTEM * 100}
-                        onChange={(v) => actualizarPricingField('tasaTEM', v / 100)}
-                        step={0.1}
-                      />
-                      <CampoPricing
-                        label="IVA construcción (%)"
-                        value={pricingForm.pctIVA * 100}
-                        onChange={(v) => actualizarPricingField('pctIVA', v / 100)}
-                        step={0.1}
-                      />
-                      <CampoPricing
-                        label="Comisión venta (%)"
-                        value={pricingForm.comisionVenta * 100}
-                        onChange={(v) => actualizarPricingField('comisionVenta', v / 100)}
-                        step={0.1}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">
-                      Margen y ajustes del proyecto
-                    </h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      <CampoPricing
-                        label="Margen objetivo (%)"
-                        value={pricingForm.margenObjetivo * 100}
-                        onChange={(v) => actualizarPricingField('margenObjetivo', v / 100)}
-                        step={0.5}
-                      />
-                      <CampoPricing
-                        label="Administración (%)"
-                        value={pricingForm.pctAdmin * 100}
-                        onChange={(v) => actualizarPricingField('pctAdmin', v / 100)}
-                        step={0.5}
-                      />
-                      <CampoPricing
-                        label="Imprevistos (%)"
-                        value={pricingForm.pctImprevistos * 100}
-                        onChange={(v) => actualizarPricingField('pctImprevistos', v / 100)}
-                        step={0.5}
-                      />
-                      <CampoPricing
-                        label="Ajuste comercial (%)"
-                        value={pricingForm.pctAjuste * 100}
-                        onChange={(v) => actualizarPricingField('pctAjuste', v / 100)}
-                        step={0.5}
-                      />
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-3">
-                      Estos valores se guardan por proyecto al hacer clic en "Aplicar y guardar
-                      este precio".
-                    </p>
-                  </div>
-                </div>
-
-                {/* Columna derecha: resultado y desglose */}
-                <div className="lg:col-span-2 space-y-6">
-                  <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-3xl text-white space-y-1">
-                    <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
-                      Precio sugerido
-                    </span>
-                    <div className="text-3xl font-black">
-                      ${Math.round(resultadoPricing.precioSugeridoUSD).toLocaleString('es-AR')}
-                      <span className="text-sm font-bold text-slate-400"> USD/m²</span>
-                    </div>
-                    <div className="text-sm font-bold text-slate-300">
-                      ${Math.round(resultadoPricing.precioSugeridoARS).toLocaleString('es-AR')} ARS/m²
-                    </div>
-                    <button
-                      onClick={handleAplicarPrecio}
-                      disabled={guardandoPrecio}
-                      className="w-full mt-4 bg-amber-500 hover:bg-amber-400 text-slate-900 font-extrabold text-xs uppercase py-3 rounded-xl transition-all active:scale-95 disabled:opacity-50"
-                    >
-                      {guardandoPrecio ? 'Guardando…' : 'Aplicar y guardar este precio'}
-                    </button>
-                    {precioSugeridoUSD !== resultadoPricing.precioSugeridoUSD && (
-                      <p className="text-[10px] text-amber-300/80 pt-1">
-                        El precio activo del proyecto sigue siendo ${Math.round(precioSugeridoUSD)}{' '}
-                        USD/m² hasta que apliques este cálculo.
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-2xs space-y-3">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase">Desglose del cálculo</h3>
-                    <FilaTicket label="Construcción" value={resultadoPricing.ticket.construccion} />
-                    <FilaTicket label="Imprevistos" value={resultadoPricing.ticket.imprevistos} />
-                    <FilaTicket label="IVA" value={resultadoPricing.ticket.iva} />
-                    <FilaTicket label="Administración" value={resultadoPricing.ticket.administracion} />
-                    <FilaTicket label="Terreno" value={resultadoPricing.ticket.terrenoFijo} />
-                    <FilaTicket label="Subtotal 1" value={resultadoPricing.ticket.subtotal1} bold />
-                    <FilaTicket label="IIBB + TEM" value={resultadoPricing.ticket.iibbYTem} />
-                    <FilaTicket label="Comercialización" value={resultadoPricing.ticket.comercializacion} />
-                    <FilaTicket label="Subtotal 2 (costo total)" value={resultadoPricing.ticket.subtotal2} bold />
-                    <div className="border-t border-slate-100 pt-3 flex justify-between text-xs">
-                      <span className="text-slate-500">Canje tierra (a costo de obra)</span>
-                      <span className="font-bold text-slate-700">
-                        ${Math.round(resultadoPricing.ticket.terrenoCanje).toLocaleString('es-AR')}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-500">Canje honorarios (a costo de obra)</span>
-                      <span className="font-bold text-slate-700">
-                        ${Math.round(resultadoPricing.ticket.honorariosCanje).toLocaleString('es-AR')}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-xs pt-2 border-t border-slate-100">
-                      <span className="text-slate-500">m² libres (vendibles, netos de canjes)</span>
-                      <span className="font-bold text-slate-700">
-                        {resultadoPricing.metrosLibres.toLocaleString('es-AR', { maximumFractionDigits: 1 })}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* PESTAÑA FINANCIADOR */}
-        {activeTab === 'financiador' && (
-          <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-2xs space-y-6">
-            <h2 className="text-xl font-black text-slate-900">Estructura de Financiación</h2>
-            <p className="text-xs text-slate-500">
-              Análisis del flujo de fondos, recupero de inversión y aportes proyectados.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200">
-                <h4 className="text-xs font-bold text-slate-700 uppercase mb-2">Recupero de Capital</h4>
-                <div className="text-2xl font-black text-emerald-600">
-                  ${Math.round(valorInventarioUSD * 0.4).toLocaleString('es-AR')} USD
-                </div>
-                <p className="text-xs text-slate-400 mt-1">Anticipos estimados (40% de inventario libre)</p>
-              </div>
-
-              <div className="p-6 rounded-2xl bg-slate-50 border border-slate-200">
-                <h4 className="text-xs font-bold text-slate-700 uppercase mb-2">Flujo en Cuotas</h4>
-                <div className="text-2xl font-black text-amber-600">
-                  ${Math.round(valorInventarioUSD * 0.6).toLocaleString('es-AR')} USD
-                </div>
-                <p className="text-xs text-slate-400 mt-1">Saldos financiables durante el plazo de obra</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* PESTAÑA COBROS */}
-        {activeTab === 'cobros' && (
-          <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-2xs space-y-6">
-            <h2 className="text-xl font-black text-slate-900">Seguimiento de Cobros</h2>
-            <p className="text-xs text-slate-500">
-              Control de cuotas cobradas, vencidas y saldos de boletos de compraventa.
-            </p>
-            <div className="p-8 text-center border-2 border-dashed border-slate-200 rounded-2xl">
-              <BarChart3 className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-              <p className="text-xs font-bold text-slate-600">No hay cuentas de cobro pendientes para este proyecto</p>
-            </div>
-          </div>
-        )}
-
-        {/* PESTAÑA UBICACIÓN */}
-        {activeTab === 'ubicacion' && (
-          <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-2xs space-y-6">
+      {/* ÁREA PRINCIPAL (Dashboard) */}
+      <main className="flex-1 h-full overflow-y-auto p-4 md:p-8">
+        <div className="max-w-6xl mx-auto space-y-8">
+          
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
             <div>
-              <h2 className="text-xl font-black text-slate-900">Ubicación del Proyecto</h2>
-              <p className="text-xs text-slate-500">{direccionProyecto}</p>
+              <h1 className="text-3xl font-serif font-bold text-slate-900 tracking-tight">Comercialink Dashboard</h1>
+              <p className="text-slate-500 mt-1 font-medium tracking-wide text-xs uppercase">Panel Gerencial de Inteligencia</p>
             </div>
-            <div className="h-96 rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
-              <div className="text-center space-y-2">
-                <MapPin className="w-8 h-8 text-amber-500 mx-auto" />
-                <div className="text-sm font-bold text-slate-800">{direccionProyecto}</div>
-                <p className="text-xs text-slate-400">Coordenadas geocodificadas en mapa general</p>
-              </div>
-            </div>
+            <Link href="/reporte" className="inline-flex items-center bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-xl shadow-lg border border-slate-800 transition-all font-bold text-sm active:scale-95">
+              <BarChart3 className="w-4 h-4 mr-2 text-amber-500" /> Generar Reporte
+            </Link>
           </div>
-        )}
-      </div>
 
-      {/* Modal de Importación Excel */}
-      <StockExcelModal
-        isOpen={isExcelModalOpen}
-        onClose={() => setIsExcelModalOpen(false)}
-        projectId={projectId}
-        projectName={nombreProyecto}
-        existingUnits={unidades}
-        onImportSuccess={handleImportSuccess}
-        onBatchSave={handleBatchSaveFromExcel}
-      />
-
-      {/* Modal de Edición Rápida de Unidad */}
-      {unidadEnEdicion && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <h3 className="text-sm font-black text-slate-900 uppercase">
-                Editar Unidad {unidadEnEdicion.identificador}
-              </h3>
-              <button
-                onClick={() => setUnidadEnEdicion(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
+          {/* 4 KPIs SUPERIORES */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-stone-200 flex flex-col justify-between">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Total Proyectos</p>
+                <Briefcase className="w-4 h-4 text-slate-400" />
+              </div>
+              <div className="flex items-baseline text-slate-800">
+                <p className="text-3xl font-bold font-serif">{proyectos.length}</p>
+                <span className="text-sm font-serif ml-2 text-slate-500">activos</span>
+              </div>
             </div>
 
-            <form onSubmit={handleGuardarEdicion} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">
-                  Identificador
-                </label>
-                <input
-                  type="text"
-                  value={unidadEnEdicion.identificador}
-                  onChange={(e) =>
-                    setUnidadEnEdicion({ ...unidadEnEdicion, identificador: e.target.value })
-                  }
-                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  required
-                />
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-stone-200 flex flex-col justify-between">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Promedio Portafolio</p>
+                <Wallet className="w-4 h-4 text-emerald-600" />
               </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    Superficie (m²)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={unidadEnEdicion.superficie_m2}
-                    onChange={(e) =>
-                      setUnidadEnEdicion({
-                        ...unidadEnEdicion,
-                        superficie_m2: Number(e.target.value),
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    % Coeficiente
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={unidadEnEdicion.porcentaje_aplicar || 100}
-                    onChange={(e) =>
-                      setUnidadEnEdicion({
-                        ...unidadEnEdicion,
-                        porcentaje_aplicar: Number(e.target.value),
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
+              <div className="flex items-baseline text-emerald-700">
+                <span className="text-lg font-serif mr-1">$</span>
+                <p className="text-3xl font-bold font-serif">{precioPromedioPortafolio.toLocaleString()}</p>
               </div>
+            </div>
+            
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-stone-200 flex flex-col justify-between">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest">Inventario Libre</p>
+                <AlertTriangle className="w-4 h-4 text-red-700" />
+              </div>
+              <div className="flex items-baseline text-red-700">
+                <span className="text-lg font-serif mr-1">$</span>
+                <p className="text-3xl font-bold font-serif">{valorTotalInventario.toLocaleString()}</p>
+              </div>
+              <p className="text-[10px] font-bold text-red-500 mt-1 uppercase tracking-widest">{m2TotalesDisponibles.toLocaleString('es-AR')} m² libres</p>
+            </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Estado</label>
-                  <select
-                    value={unidadEnEdicion.estado}
-                    onChange={(e) =>
-                      setUnidadEnEdicion({
-                        ...unidadEnEdicion,
-                        estado: e.target.value as any,
-                      })
-                    }
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-500 bg-slate-50"
-                  >
-                    <option value="disponible">Disponible</option>
-                    <option value="reservada">Reservada</option>
-                    <option value="vendida">Vendida</option>
+            {/* NUEVO KPI: VENTAS POR PERIODO */}
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-stone-200 flex flex-col justify-between ring-1 ring-amber-500/20">
+              <div className="flex justify-between items-start mb-2">
+                <p className="text-stone-400 text-[10px] font-bold uppercase tracking-widest flex items-center text-amber-600">
+                  <CalendarDays className="w-3 h-3 mr-1" /> Ventas Período
+                </p>
+                <div className="flex gap-1">
+                  <select value={filtroMes} onChange={(e)=>setFiltroMes(Number(e.target.value))} className="text-[10px] font-bold bg-stone-50 border border-stone-200 rounded p-1 outline-none text-slate-700 cursor-pointer hover:border-amber-400">
+                    {meses.map(m => <option key={m.val} value={m.val}>{m.label}</option>)}
+                  </select>
+                  <select value={filtroAnio} onChange={(e)=>setFiltroAnio(Number(e.target.value))} className="text-[10px] font-bold bg-stone-50 border border-stone-200 rounded p-1 outline-none text-slate-700 cursor-pointer hover:border-amber-400">
+                    {anios.map(a => <option key={a} value={a}>{a}</option>)}
                   </select>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">
-                    Precio Lista (USD)
-                  </label>
-                  <input
-                    type="number"
-                    value={unidadEnEdicion.precio_lista_usd || ''}
-                    onChange={(e) =>
-                      setUnidadEnEdicion({
-                        ...unidadEnEdicion,
-                        precio_lista_usd: e.target.value ? Number(e.target.value) : undefined,
-                      })
-                    }
-                    placeholder="Opcional"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                </div>
               </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setUnidadEnEdicion(null)}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 text-xs font-bold hover:bg-slate-100"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-black shadow-md"
-                >
-                  Guardar Cambios
-                </button>
+              <div className="flex items-baseline text-amber-600 mt-1">
+                <span className="text-lg font-serif mr-1">$</span>
+                <p className="text-3xl font-bold font-serif">{totalVentasPeriodo.toLocaleString()}</p>
               </div>
-            </form>
+            </div>
           </div>
+
+          {/* GRID DE PANELES CENTRALES (GRAFICOS Y MAPAS) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
+              <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Ranking Precios (USD/m²)</h2>
+              <div className="h-64 w-full relative z-10">
+                {resumenPrecios.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={resumenPrecios} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" />
+                      <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis dataKey="nombre" type="category" width={80} tick={{ fill: '#f8fafc', fontSize: 10, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                      <RechartsTooltip cursor={{ fill: '#1e293b' }} contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }} />
+                      <Bar dataKey="ultimoPrecioUSD" fill="#0f766e" radius={[0, 4, 4, 0]} name="Precio USD/m²" barSize={20} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin datos.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
+              <div className="flex items-center justify-between mb-6 relative z-10">
+                <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Evolución Histórica</h2>
+                <select 
+                  value={proyectoSeleccionadoId} 
+                  onChange={(e) => setProyectoSeleccionadoId(e.target.value)}
+                  className="bg-slate-800 border border-slate-700 text-slate-200 text-[10px] font-bold uppercase rounded p-1 outline-none cursor-pointer"
+                >
+                  <option value="todos">Promedio Global</option>
+                  {proyectos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                </select>
+              </div>
+              <div className="h-64 w-full relative z-10">
+                 {datosGraficoLinea.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={datosGraficoLinea} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorPrecio" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#d97706" stopOpacity={0.4}/>
+                          <stop offset="95%" stopColor="#d97706" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                      <XAxis dataKey="fecha" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} dy={10} />
+                      <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} domain={['auto', 'auto']} axisLine={false} tickLine={false} />
+                      <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} labelStyle={{ color: '#94a3b8', marginBottom: '4px' }} itemStyle={{ color: '#d97706', fontWeight: 'bold' }} />
+                      <Area type="monotone" dataKey="resultado_precio_promedio_usd" stroke="#d97706" strokeWidth={3} fillOpacity={1} fill="url(#colorPrecio)" activeDot={{ r: 6, strokeWidth: 0, fill: '#d97706' }} name="Precio USD/m²" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin historial para este proyecto.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
+              <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">
+                <PieChartIcon className="w-4 h-4 mr-2" /> Participación de Inventario
+              </h2>
+              <div className="h-64 w-full relative z-10">
+                {datosTorta.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={datosTorta}
+                        dataKey="valorInventario"
+                        nameKey="nombre"
+                        cx="50%"
+                        cy="45%"
+                        innerRadius={55}
+                        outerRadius={80}
+                        paddingAngle={2}
+                        stroke="none"
+                      >
+                        {datosTorta.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip 
+                        formatter={formatTooltipPie}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} 
+                        itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }}
+                      />
+                      <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '10px', color: '#94a3b8' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin inventario disponible para mostrar.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
+              <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Detalle Actual</h2>
+              <div className="h-64 w-full relative z-10 overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin', scrollbarColor: '#475569 transparent' }}>
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 bg-slate-900 z-20">
+                    <tr className="border-b border-slate-700">
+                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Proyecto</th>
+                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Inv. (USD)</th>
+                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Precio/m²</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resumenPrecios.map((item, i) => (
+                      <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/50 transition-colors">
+                        <td className="py-3 text-[11px] font-bold text-slate-200">{item.nombre}</td>
+                        <td className="py-3 text-[11px] font-medium text-amber-500 text-center">${item.valorInventario.toLocaleString()}</td>
+                        <td className="py-3 text-[11px] font-black text-emerald-500 text-right">${item.ultimoPrecioUSD.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {resumenPrecios.length === 0 && (
+                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic mt-10">Sin datos.</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* MAPA INTERACTIVO GLOBAL MULTI-PIN */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-stone-200">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-serif font-bold text-slate-900 flex items-center tracking-tight">
+                <MapPin className="w-5 h-5 mr-2 text-slate-600" /> Mapa del Portafolio
+              </h2>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[400px]">
+              <div className="lg:col-span-4 overflow-y-auto pr-2 space-y-3" style={{ scrollbarWidth: 'thin', scrollbarColor: '#d6d3d1 transparent' }}>
+                {proyectosConDireccion.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-stone-500 text-sm italic text-center p-6 border-2 border-dashed border-stone-200 rounded-xl">
+                    Aún no has agregado direcciones a tus proyectos.
+                  </div>
+                ) : (
+                  proyectosConDireccion.map((item) => (
+                    <div 
+                      key={item.id} 
+                      onClick={() => enfocarProyectoEnMapa(item.id, item.direccion)}
+                      className={`p-4 rounded-xl border cursor-pointer transition-all ${proyectoActivoMapa === item.id ? 'bg-slate-50 border-slate-300 shadow-sm' : 'bg-white border-stone-100 hover:border-stone-300'}`}
+                    >
+                      <h3 className={`font-bold text-sm ${proyectoActivoMapa === item.id ? 'text-slate-900' : 'text-slate-600'}`}>{item.nombre}</h3>
+                      <p className="text-[10px] text-stone-500 mt-1 line-clamp-1 flex items-center"><Map className="w-3 h-3 mr-1"/> {item.direccion}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="lg:col-span-8 rounded-xl overflow-hidden border border-stone-200 bg-stone-100 flex items-center justify-center relative shadow-inner">
+                {proyectosConDireccion.length > 0 ? (
+                  <iframe 
+                    id="mapa-global"
+                    srcDoc={htmlMapa} 
+                    width="100%" 
+                    height="100%" 
+                    style={{ border: 0 }} 
+                    sandbox="allow-scripts allow-same-origin"
+                    loading="lazy" 
+                    className="absolute inset-0"
+                  ></iframe>
+                ) : (
+                  <div className="text-stone-400 text-sm font-medium flex flex-col items-center">
+                    <MapPin className="w-10 h-10 mb-2 opacity-50" /> Sin ubicaciones para mapear
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          {/* Espacio final */}
+          <div className="pb-10"></div>
+
         </div>
-      )}
-    </div>
-  )
-}
-
-// Input numérico chico para la Matriz de Pricing
-function CampoPricing({
-  label,
-  value,
-  onChange,
-  step = 1,
-}: {
-  label: string
-  value: number
-  onChange: (v: number) => void
-  step?: number
-}) {
-  return (
-    <div>
-      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-        {label}
-      </label>
-      <input
-        type="number"
-        step={step}
-        value={Number.isFinite(value) ? value : 0}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full rounded-xl bg-slate-50 border-0 px-3 py-2.5 text-sm font-bold text-slate-800 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-amber-500 transition-all"
-      />
-    </div>
-  )
-}
-
-// Fila del desglose de costos (ticket) en la Matriz de Pricing
-function FilaTicket({ label, value, bold = false }: { label: string; value: number; bold?: boolean }) {
-  return (
-    <div className={`flex justify-between text-xs ${bold ? 'font-black text-slate-900' : 'text-slate-500'}`}>
-      <span>{label}</span>
-      <span className={bold ? '' : 'font-bold text-slate-700'}>
-        ${Math.round(value).toLocaleString('es-AR')}
-      </span>
+      </main>
     </div>
   )
 }

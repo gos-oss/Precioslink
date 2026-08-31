@@ -1175,8 +1175,8 @@ export default function ProyectoDetallePage({ params }: { params?: { id: string 
                       />
                     </div>
                     <p className="text-[10px] text-slate-400 mt-3">
-                      Estos valores se guardan por proyecto al hacer clic en "Aplicar y guardar
-                      este precio".
+                      Estos valores se guardan por proyecto al hacer clic en &ldquo;Aplicar y
+                      guardar este precio&rdquo;.
                     </p>
                   </div>
                 </div>

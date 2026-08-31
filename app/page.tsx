@@ -54,6 +54,10 @@ interface ProyectoInfo {
   canje_tierra_pct?: number
   canje_honorarios_pct?: number
   tipo_cambio?: number
+  margen_objetivo?: number
+  pct_admin?: number
+  pct_imprevistos?: number
+  pct_ajuste?: number
 }
 
 interface ConfiguracionGlobal {
@@ -64,9 +68,8 @@ interface ConfiguracionGlobal {
   comision_venta?: number
 }
 
-// Parámetros que hoy no viven en la base (no hay columnas todavía).
-// Quedan editables por sesión con defaults razonables hasta que se sumen
-// las columnas correspondientes (ver propuesta de migración).
+// Defaults de fallback por si el proyecto todavía no tiene estos campos
+// cargados en la base (columnas nulas).
 const DEFAULT_PRICING_EXTRAS = {
   margenObjetivo: 0.15,
   pctAdmin: 0.05,
@@ -218,12 +221,12 @@ export default function ProyectoDetallePage({ params }: { params?: { id: string 
         tasaIIBB: configGlobal?.tasa_iibb ?? 0.035,
         tasaTEM: configGlobal?.tasa_tem ?? 0.02,
         comisionVenta: configGlobal?.comision_venta ?? 0.03,
-        margenObjetivo: DEFAULT_PRICING_EXTRAS.margenObjetivo,
+        margenObjetivo: proyecto.margen_objetivo ?? DEFAULT_PRICING_EXTRAS.margenObjetivo,
         tipoCambio: configGlobal?.tipo_cambio || tcActivo,
         pctIVA: configGlobal?.tasa_iva ?? 0.105,
-        pctAdmin: DEFAULT_PRICING_EXTRAS.pctAdmin,
-        pctImprevistos: DEFAULT_PRICING_EXTRAS.pctImprevistos,
-        pctAjuste: DEFAULT_PRICING_EXTRAS.pctAjuste,
+        pctAdmin: proyecto.pct_admin ?? DEFAULT_PRICING_EXTRAS.pctAdmin,
+        pctImprevistos: proyecto.pct_imprevistos ?? DEFAULT_PRICING_EXTRAS.pctImprevistos,
+        pctAjuste: proyecto.pct_ajuste ?? DEFAULT_PRICING_EXTRAS.pctAjuste,
       }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -256,6 +259,10 @@ export default function ProyectoDetallePage({ params }: { params?: { id: string 
           valor_terreno_usd: pricingForm.valorTerrenoUSD,
           canje_tierra_pct: pricingForm.canjeTierraPct,
           canje_honorarios_pct: pricingForm.canjeHonorariosPct,
+          margen_objetivo: pricingForm.margenObjetivo,
+          pct_admin: pricingForm.pctAdmin,
+          pct_imprevistos: pricingForm.pctImprevistos,
+          pct_ajuste: pricingForm.pctAjuste,
         })
         .eq('id', projectId)
 
@@ -1168,9 +1175,8 @@ export default function ProyectoDetallePage({ params }: { params?: { id: string 
                       />
                     </div>
                     <p className="text-[10px] text-slate-400 mt-3">
-                      Margen, administración, imprevistos y ajuste todavía no tienen columna en la
-                      base de datos — se recalculan en vivo pero, por ahora, no quedan guardados
-                      entre sesiones. Lo dejamos como próximo paso de la migración.
+                      Estos valores se guardan por proyecto al hacer clic en "Aplicar y guardar
+                      este precio".
                     </p>
                   </div>
                 </div>

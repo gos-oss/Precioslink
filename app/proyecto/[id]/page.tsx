@@ -31,6 +31,7 @@ import {
 } from 'lucide-react'
 import StockExcelModal from '@/components/StockExcelModal'
 import { exportUnitsToExcel, downloadExcelTemplate } from '@/lib/excelStockParser'
+import { calcularPrecioSugerido, type PricingInputs } from '@/lib/mathEngine'
 
 interface Unidad {
   id: string
@@ -53,6 +54,27 @@ interface ProyectoInfo {
   canje_tierra_pct?: number
   canje_honorarios_pct?: number
   tipo_cambio?: number
+  margen_objetivo?: number
+  pct_admin?: number
+  pct_imprevistos?: number
+  pct_ajuste?: number
+}
+
+interface ConfiguracionGlobal {
+  tipo_cambio?: number
+  tasa_iibb?: number
+  tasa_tem?: number
+  tasa_iva?: number
+  comision_venta?: number
+}
+
+// Defaults de fallback por si el proyecto todavía no tiene estos campos
+// cargados en la base (columnas nulas).
+const DEFAULT_PRICING_EXTRAS = {
+  margenObjetivo: 0.15,
+  pctAdmin: 0.05,
+  pctImprevistos: 0.05,
+  pctAjuste: 0,
 }
 
 export default function ProyectoDetallePage({ params }: { params?: { id: string } }) {
@@ -66,10 +88,16 @@ export default function ProyectoDetallePage({ params }: { params?: { id: string 
   const [precioSugeridoUSD, setPrecioSugeridoUSD] = useState<number>(1746.62)
   
   const [proyecto, setProyecto] = useState<ProyectoInfo | null>(null)
+  const [configGlobal, setConfigGlobal] = useState<ConfiguracionGlobal | null>(null)
   const [unidades, setUnidades] = useState<Unidad[]>([])
   const [loading, setLoading] = useState<boolean>(true)
   const [mensajeExito, setMensajeExito] = useState<string | null>(null)
   const [isExcelModalOpen, setIsExcelModalOpen] = useState<boolean>(false)
+  const [guardandoPrecio, setGuardandoPrecio] = useState<boolean>(false)
+
+  // Inputs editables de la Matriz de Pricing (se inicializan cuando llegan
+  // proyecto + configuración global, ver useEffect más abajo)
+  const [pricingForm, setPricingForm] = useState<PricingInputs | null>(null)
 
   // Selección múltiple para acciones en lote
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -103,15 +131,18 @@ export default function ProyectoDetallePage({ params }: { params?: { id: string 
         setProyecto(dataProyecto)
       }
 
-      // 2. Obtener tipo de cambio global si existe
+      // 2. Obtener configuración global (tipo de cambio, IIBB, TEM, IVA, comisión)
       const { data: dataConfig } = await supabase
         .from('configuracion_global')
-        .select('tipo_cambio')
+        .select('tipo_cambio, tasa_iibb, tasa_tem, tasa_iva, comision_venta')
         .eq('id', 1)
         .single()
 
-      if (dataConfig?.tipo_cambio) {
-        setTcActivo(Number(dataConfig.tipo_cambio))
+      if (dataConfig) {
+        setConfigGlobal(dataConfig)
+        if (dataConfig.tipo_cambio) {
+          setTcActivo(Number(dataConfig.tipo_cambio))
+        }
       }
 
       // 3. Obtener último precio histórico del proyecto
@@ -172,6 +203,86 @@ export default function ProyectoDetallePage({ params }: { params?: { id: string 
     const coef = Number(u.porcentaje_aplicar ?? 100) / 100
     return acc + Number(u.superficie_m2 || 0) * precioSugeridoUSD * coef
   }, 0)
+
+  // Inicializa el formulario de pricing una sola vez, cuando ya tenemos
+  // proyecto + configuración global + superficie real de las unidades.
+  // No pisa valores si el usuario ya está editando (pricingForm !== null
+  // solo se vuelve a sembrar mientras loading, evitamos loop con el flag).
+  useEffect(() => {
+    if (loading || !proyecto) return
+    setPricingForm((prev) => {
+      if (prev) return prev
+      return {
+        superficieVendible: proyecto.superficie_total || m2Totales || 0,
+        costoDuroM2: proyecto.costo_duro_m2 || 950,
+        valorTerrenoUSD: proyecto.valor_terreno_usd || 0,
+        canjeTierraPct: proyecto.canje_tierra_pct ?? 0.15,
+        canjeHonorariosPct: proyecto.canje_honorarios_pct ?? 0,
+        tasaIIBB: configGlobal?.tasa_iibb ?? 0.035,
+        tasaTEM: configGlobal?.tasa_tem ?? 0.02,
+        comisionVenta: configGlobal?.comision_venta ?? 0.03,
+        margenObjetivo: proyecto.margen_objetivo ?? DEFAULT_PRICING_EXTRAS.margenObjetivo,
+        tipoCambio: configGlobal?.tipo_cambio || tcActivo,
+        pctIVA: configGlobal?.tasa_iva ?? 0.105,
+        pctAdmin: proyecto.pct_admin ?? DEFAULT_PRICING_EXTRAS.pctAdmin,
+        pctImprevistos: proyecto.pct_imprevistos ?? DEFAULT_PRICING_EXTRAS.pctImprevistos,
+        pctAjuste: proyecto.pct_ajuste ?? DEFAULT_PRICING_EXTRAS.pctAjuste,
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, proyecto, configGlobal])
+
+  // Recalcula en vivo cada vez que se toca un input de la matriz
+  const resultadoPricing = useMemo(() => {
+    if (!pricingForm) return null
+    try {
+      return calcularPrecioSugerido(pricingForm)
+    } catch (e) {
+      return null
+    }
+  }, [pricingForm])
+
+  const actualizarPricingField = (campo: keyof PricingInputs, valor: number) => {
+    setPricingForm((prev) => (prev ? { ...prev, [campo]: valor } : prev))
+  }
+
+  // Aplica el precio calculado al proyecto: lo guarda como precio activo
+  // (impacta valorización de stock) y deja registro en el historial.
+  const handleAplicarPrecio = async () => {
+    if (!resultadoPricing || !pricingForm) return
+    setGuardandoPrecio(true)
+    try {
+      await supabase
+        .from('proyectos')
+        .update({
+          costo_duro_m2: pricingForm.costoDuroM2,
+          valor_terreno_usd: pricingForm.valorTerrenoUSD,
+          canje_tierra_pct: pricingForm.canjeTierraPct,
+          canje_honorarios_pct: pricingForm.canjeHonorariosPct,
+          margen_objetivo: pricingForm.margenObjetivo,
+          pct_admin: pricingForm.pctAdmin,
+          pct_imprevistos: pricingForm.pctImprevistos,
+          pct_ajuste: pricingForm.pctAjuste,
+        })
+        .eq('id', projectId)
+
+      await supabase.from('historial_versiones_proyecto').insert([
+        {
+          id_proyecto: projectId,
+          fecha_referencia: new Date().toISOString(),
+          resultado_precio_promedio_usd: resultadoPricing.precioSugeridoUSD,
+        },
+      ])
+
+      setPrecioSugeridoUSD(resultadoPricing.precioSugeridoUSD)
+      mostrarNotificacion('Precio recalculado y aplicado al proyecto')
+    } catch (err) {
+      console.error('Error al aplicar precio:', err)
+      mostrarNotificacion('No se pudo guardar el precio (revisá la conexión)')
+    } finally {
+      setGuardandoPrecio(false)
+    }
+  }
 
   // Filtrado y búsqueda
   const unidadesFiltradas = useMemo(() => {
@@ -933,42 +1044,204 @@ export default function ProyectoDetallePage({ params }: { params?: { id: string 
 
         {/* PESTAÑA PRICING */}
         {activeTab === 'pricing' && (
-          <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-2xs space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-              <div>
-                <h2 className="text-xl font-black text-slate-900">Matriz de Precios</h2>
-                <p className="text-xs text-slate-500">
-                  Parámetros de costos físicos, canjes y cálculo de precio de venta por m²
-                </p>
+          <div className="space-y-6">
+            {!pricingForm || !resultadoPricing ? (
+              <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-2xs text-center text-sm text-slate-400">
+                Cargando parámetros de pricing…
               </div>
-              <div className="text-right">
-                <span className="text-xs text-slate-400 font-bold block uppercase">PRECIO BASE</span>
-                <span className="text-2xl font-black text-amber-600">${Math.round(precioSugeridoUSD)} USD/m²</span>
-              </div>
-            </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                {/* Columna izquierda: inputs editables */}
+                <div className="lg:col-span-3 bg-white p-8 rounded-3xl border border-slate-200 shadow-2xs space-y-6">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                    <div>
+                      <h2 className="text-xl font-black text-slate-900">Matriz de Precios</h2>
+                      <p className="text-xs text-slate-500">
+                        Ajustá los parámetros y el precio se recalcula en vivo
+                      </p>
+                    </div>
+                    <Sliders className="w-5 h-5 text-amber-500" />
+                  </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200">
-                <span className="text-xs font-bold text-slate-400 uppercase">Costo Duro Obra</span>
-                <div className="text-xl font-black text-slate-800 mt-1">
-                  ${proyecto?.costo_duro_m2 || 950} USD/m²
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Costos físicos y terreno</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <CampoPricing
+                        label="Superficie vendible (m²)"
+                        value={pricingForm.superficieVendible}
+                        onChange={(v) => actualizarPricingField('superficieVendible', v)}
+                      />
+                      <CampoPricing
+                        label="Costo duro (USD/m²)"
+                        value={pricingForm.costoDuroM2}
+                        onChange={(v) => actualizarPricingField('costoDuroM2', v)}
+                      />
+                      <CampoPricing
+                        label="Valor terreno (USD)"
+                        value={pricingForm.valorTerrenoUSD}
+                        onChange={(v) => actualizarPricingField('valorTerrenoUSD', v)}
+                      />
+                      <CampoPricing
+                        label="Tipo de cambio (ARS)"
+                        value={pricingForm.tipoCambio}
+                        onChange={(v) => actualizarPricingField('tipoCambio', v)}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">Canjes</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <CampoPricing
+                        label="Canje tierra (%)"
+                        value={pricingForm.canjeTierraPct * 100}
+                        onChange={(v) => actualizarPricingField('canjeTierraPct', v / 100)}
+                        step={0.5}
+                      />
+                      <CampoPricing
+                        label="Canje honorarios (%)"
+                        value={pricingForm.canjeHonorariosPct * 100}
+                        onChange={(v) => actualizarPricingField('canjeHonorariosPct', v / 100)}
+                        step={0.5}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase">
+                        Impuestos y comercialización
+                      </h3>
+                      <Link href="/configuracion" className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 uppercase">
+                        Editar valores globales
+                      </Link>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <CampoPricing
+                        label="IIBB (%)"
+                        value={pricingForm.tasaIIBB * 100}
+                        onChange={(v) => actualizarPricingField('tasaIIBB', v / 100)}
+                        step={0.1}
+                      />
+                      <CampoPricing
+                        label="TEM (%)"
+                        value={pricingForm.tasaTEM * 100}
+                        onChange={(v) => actualizarPricingField('tasaTEM', v / 100)}
+                        step={0.1}
+                      />
+                      <CampoPricing
+                        label="IVA construcción (%)"
+                        value={pricingForm.pctIVA * 100}
+                        onChange={(v) => actualizarPricingField('pctIVA', v / 100)}
+                        step={0.1}
+                      />
+                      <CampoPricing
+                        label="Comisión venta (%)"
+                        value={pricingForm.comisionVenta * 100}
+                        onChange={(v) => actualizarPricingField('comisionVenta', v / 100)}
+                        step={0.1}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase mb-3">
+                      Margen y ajustes del proyecto
+                    </h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <CampoPricing
+                        label="Margen objetivo (%)"
+                        value={pricingForm.margenObjetivo * 100}
+                        onChange={(v) => actualizarPricingField('margenObjetivo', v / 100)}
+                        step={0.5}
+                      />
+                      <CampoPricing
+                        label="Administración (%)"
+                        value={pricingForm.pctAdmin * 100}
+                        onChange={(v) => actualizarPricingField('pctAdmin', v / 100)}
+                        step={0.5}
+                      />
+                      <CampoPricing
+                        label="Imprevistos (%)"
+                        value={pricingForm.pctImprevistos * 100}
+                        onChange={(v) => actualizarPricingField('pctImprevistos', v / 100)}
+                        step={0.5}
+                      />
+                      <CampoPricing
+                        label="Ajuste comercial (%)"
+                        value={pricingForm.pctAjuste * 100}
+                        onChange={(v) => actualizarPricingField('pctAjuste', v / 100)}
+                        step={0.5}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-3">
+                      Estos valores se guardan por proyecto al hacer clic en "Aplicar y guardar
+                      este precio".
+                    </p>
+                  </div>
+                </div>
+
+                {/* Columna derecha: resultado y desglose */}
+                <div className="lg:col-span-2 space-y-6">
+                  <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-3xl text-white space-y-1">
+                    <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider">
+                      Precio sugerido
+                    </span>
+                    <div className="text-3xl font-black">
+                      ${Math.round(resultadoPricing.precioSugeridoUSD).toLocaleString('es-AR')}
+                      <span className="text-sm font-bold text-slate-400"> USD/m²</span>
+                    </div>
+                    <div className="text-sm font-bold text-slate-300">
+                      ${Math.round(resultadoPricing.precioSugeridoARS).toLocaleString('es-AR')} ARS/m²
+                    </div>
+                    <button
+                      onClick={handleAplicarPrecio}
+                      disabled={guardandoPrecio}
+                      className="w-full mt-4 bg-amber-500 hover:bg-amber-400 text-slate-900 font-extrabold text-xs uppercase py-3 rounded-xl transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      {guardandoPrecio ? 'Guardando…' : 'Aplicar y guardar este precio'}
+                    </button>
+                    {precioSugeridoUSD !== resultadoPricing.precioSugeridoUSD && (
+                      <p className="text-[10px] text-amber-300/80 pt-1">
+                        El precio activo del proyecto sigue siendo ${Math.round(precioSugeridoUSD)}{' '}
+                        USD/m² hasta que apliques este cálculo.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-2xs space-y-3">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase">Desglose del cálculo</h3>
+                    <FilaTicket label="Construcción" value={resultadoPricing.ticket.construccion} />
+                    <FilaTicket label="Imprevistos" value={resultadoPricing.ticket.imprevistos} />
+                    <FilaTicket label="IVA" value={resultadoPricing.ticket.iva} />
+                    <FilaTicket label="Administración" value={resultadoPricing.ticket.administracion} />
+                    <FilaTicket label="Terreno" value={resultadoPricing.ticket.terrenoFijo} />
+                    <FilaTicket label="Subtotal 1" value={resultadoPricing.ticket.subtotal1} bold />
+                    <FilaTicket label="IIBB + TEM" value={resultadoPricing.ticket.iibbYTem} />
+                    <FilaTicket label="Comercialización" value={resultadoPricing.ticket.comercializacion} />
+                    <FilaTicket label="Subtotal 2 (costo total)" value={resultadoPricing.ticket.subtotal2} bold />
+                    <div className="border-t border-slate-100 pt-3 flex justify-between text-xs">
+                      <span className="text-slate-500">Canje tierra (a costo de obra)</span>
+                      <span className="font-bold text-slate-700">
+                        ${Math.round(resultadoPricing.ticket.terrenoCanje).toLocaleString('es-AR')}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-slate-500">Canje honorarios (a costo de obra)</span>
+                      <span className="font-bold text-slate-700">
+                        ${Math.round(resultadoPricing.ticket.honorariosCanje).toLocaleString('es-AR')}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-xs pt-2 border-t border-slate-100">
+                      <span className="text-slate-500">m² libres (vendibles, netos de canjes)</span>
+                      <span className="font-bold text-slate-700">
+                        {resultadoPricing.metrosLibres.toLocaleString('es-AR', { maximumFractionDigits: 1 })}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200">
-                <span className="text-xs font-bold text-slate-400 uppercase">Superficie Proyecto</span>
-                <div className="text-xl font-black text-slate-800 mt-1">
-                  {m2Totales.toLocaleString('es-AR')} m²
-                </div>
-              </div>
-
-              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200">
-                <span className="text-xs font-bold text-slate-400 uppercase">Canje Tierra</span>
-                <div className="text-xl font-black text-slate-800 mt-1">
-                  {proyecto?.canje_tierra_pct ? (proyecto.canje_tierra_pct * 100).toFixed(1) : '15.0'}%
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -1170,6 +1443,46 @@ export default function ProyectoDetallePage({ params }: { params?: { id: string 
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Input numérico chico para la Matriz de Pricing
+function CampoPricing({
+  label,
+  value,
+  onChange,
+  step = 1,
+}: {
+  label: string
+  value: number
+  onChange: (v: number) => void
+  step?: number
+}) {
+  return (
+    <div>
+      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+        {label}
+      </label>
+      <input
+        type="number"
+        step={step}
+        value={Number.isFinite(value) ? value : 0}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full rounded-xl bg-slate-50 border-0 px-3 py-2.5 text-sm font-bold text-slate-800 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-amber-500 transition-all"
+      />
+    </div>
+  )
+}
+
+// Fila del desglose de costos (ticket) en la Matriz de Pricing
+function FilaTicket({ label, value, bold = false }: { label: string; value: number; bold?: boolean }) {
+  return (
+    <div className={`flex justify-between text-xs ${bold ? 'font-black text-slate-900' : 'text-slate-500'}`}>
+      <span>{label}</span>
+      <span className={bold ? '' : 'font-bold text-slate-700'}>
+        ${Math.round(value).toLocaleString('es-AR')}
+      </span>
     </div>
   )
 }

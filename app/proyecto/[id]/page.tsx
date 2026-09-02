@@ -31,14 +31,15 @@ interface Operacion {
 }
 
 export default function ProyectoDetallePage({ params }: { params: { id: string } }) {
-  // Inicializamos en PRICING para que sea lo primero que veas al entrar
   const [activeTab, setActiveTab] = useState<'pricing' | 'stock' | 'financiador' | 'cobros' | 'ubicacion'>('pricing')
   
-  // ESTADOS GLOBALES
-  const [filtroEstado, setFiltroEstado] = useState<string>('todos')
+  // ESTADOS GLOBALES DE PRICING
   const [tcActivo, setTcActivo] = useState<number>(1530)
   const [precioSugeridoUSD, setPrecioSugeridoUSD] = useState<number>(1746.62)
+  const [guardandoPricing, setGuardandoPricing] = useState(false)
   
+  // ESTADOS DE INVENTARIO Y OPERACIONES
+  const [filtroEstado, setFiltroEstado] = useState<string>('todos')
   const [unidades, setUnidades] = useState<Unidad[]>([])
   const [operaciones, setOperaciones] = useState<Operacion[]>([])
   const [loading, setLoading] = useState<boolean>(true)
@@ -64,30 +65,60 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
     async function fetchData() {
       setLoading(true)
       
-      // 1. Traer unidades
-      const { data: dataUnidades, error: errorUnidades } = await supabase
+      // 1. Traer Pricing del Proyecto
+      const { data: dataProyecto } = await supabase
+        .from('proyectos')
+        .select('tc_activo, precio_base_usd')
+        .eq('id', params.id)
+        .single()
+        
+      if (dataProyecto) {
+        if (dataProyecto.tc_activo) setTcActivo(Number(dataProyecto.tc_activo))
+        if (dataProyecto.precio_base_usd) setPrecioSugeridoUSD(Number(dataProyecto.precio_base_usd))
+      }
+
+      // 2. Traer unidades
+      const { data: dataUnidades } = await supabase
         .from('unidades')
         .select('*')
         .eq('id_proyecto', params.id)
         .order('identificador', { ascending: true })
 
       if (dataUnidades) setUnidades(dataUnidades)
-      if (errorUnidades) console.error("Error unidades:", errorUnidades)
 
-      // 2. Traer operaciones (Cuentas Corrientes)
-      const { data: dataOperaciones, error: errorOperaciones } = await supabase
+      // 3. Traer operaciones (Cuentas Corrientes)
+      const { data: dataOperaciones } = await supabase
         .from('operaciones')
         .select('*')
         .eq('id_proyecto', params.id)
         .order('created_at', { ascending: false })
 
       if (dataOperaciones) setOperaciones(dataOperaciones)
-      if (errorOperaciones) console.error("Error operaciones:", errorOperaciones)
 
       setLoading(false)
     }
     if (params.id) fetchData()
   }, [params.id])
+
+  // GUARDAR PRICING EN BASE DE DATOS
+  const handleGuardarPricing = async () => {
+    setGuardandoPricing(true)
+    const { error } = await supabase
+      .from('proyectos')
+      .update({
+        tc_activo: tcActivo,
+        precio_base_usd: precioSugeridoUSD
+      })
+      .eq('id', params.id)
+
+    setGuardandoPricing(false)
+    if (error) {
+      alert("Error al guardar los valores de Pricing.")
+      console.error(error)
+    } else {
+      alert("✅ Valores actualizados correctamente.")
+    }
+  }
 
   // VARIABLES COMPUTADAS
   const unidadesDisponibles = unidades.filter((u) => u.estado === 'disponible')
@@ -184,9 +215,6 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
     setActiveTab('cobros')
   }
 
-  // ==========================================
-  // RENDERIZADO VISUAL
-  // ==========================================
   return (
     <div className="min-h-screen bg-slate-50 p-6 print:p-0 print:bg-white">
       {/* HEADER GLOBAl */}
@@ -228,7 +256,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
         <div className="max-w-5xl mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
           <div className="bg-amber-500 text-white p-4 rounded-xl mb-6 shadow-sm">
             <h2 className="text-xl font-extrabold">📊 MÓDULO DE PRICING GLOBAL</h2>
-            <p className="text-sm font-medium opacity-90">Ajusta los valores de mercado de todo el proyecto desde aquí.</p>
+            <p className="text-sm font-medium opacity-90">Ajusta los valores de mercado de este proyecto desde aquí.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -257,6 +285,17 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                 />
               </div>
             </div>
+          </div>
+
+          {/* BOTÓN DE GUARDAR */}
+          <div className="mt-8 flex justify-end">
+            <button 
+              onClick={handleGuardarPricing}
+              disabled={guardandoPricing}
+              className="bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 px-8 rounded-xl shadow-sm transition-colors flex items-center gap-2"
+            >
+              {guardandoPricing ? 'Guardando...' : '💾 Guardar Cambios'}
+            </button>
           </div>
         </div>
       )}
@@ -438,7 +477,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {operaciones.length === 0 ? (
-                  <tr><td colSpan={5} className="py-8 text-center text-slate-400 font-medium">Aún no hay ventas registradas. Si hiciste una importación, asegúrate de haber subido los datos correctamente en Supabase.</td></tr>
+                  <tr><td colSpan={5} className="py-8 text-center text-slate-400 font-medium">Aún no hay ventas registradas.</td></tr>
                 ) : (
                   operaciones.map(op => {
                     const uni = unidades.find(u => u.id === op.id_unidad)

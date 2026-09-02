@@ -142,8 +142,8 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
     <div className="min-h-screen bg-slate-50 p-6">
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-6">
-        <Link href="/portafolio" className="text-amber-600 font-semibold text-sm hover:underline flex items-center gap-1 mb-2">
-          ← VOLVER AL PORTAFOLIO
+        <Link href="/" className="text-amber-600 font-semibold text-sm hover:underline flex items-center gap-1 mb-2">
+          ← VOLVER AL INICIO
         </Link>
         <div className="flex justify-between items-start">
           <div>

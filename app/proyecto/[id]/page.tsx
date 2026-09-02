@@ -20,6 +20,7 @@ interface Unidad {
 interface Operacion {
   id: string
   id_unidad: string
+  cliente_nombre: string
   moneda: string
   precio_total: number
   monto_anticipo: number
@@ -29,7 +30,7 @@ interface Operacion {
 }
 
 export default function ProyectoDetallePage({ params }: { params: { id: string } }) {
-  const [activeTab, setActiveTab] = useState<'pricing' | 'stock' | 'financiador' | 'cobros' | 'ubicacion'>('stock')
+  const [activeTab, setActiveTab] = useState<'pricing' | 'stock' | 'financiador' | 'cobros' | 'ubicacion'>('pricing')
   
   // ==========================================
   // ESTADOS GLOBALES Y DE STOCK
@@ -250,6 +251,54 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
           </button>
         ))}
       </div>
+
+      {/* ==========================================
+          PESTAÑA: PRICING (RESTAURADA)
+          ========================================== */}
+      {activeTab === 'pricing' && (
+        <div className="max-w-5xl mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-sm print:hidden">
+          <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-2">
+            📊 PARÁMETROS DE PRICING GLOBAL
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            
+            {/* Tarjeta: T.C. Activo */}
+            <div className="bg-amber-50 p-6 rounded-xl border border-amber-100 shadow-sm">
+              <label className="block text-xs font-bold text-amber-800 mb-2 uppercase">Tipo de Cambio (T.C. Activo)</label>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-amber-600">$</span>
+                <input 
+                  type="number" 
+                  value={tcActivo} 
+                  disabled
+                  className="w-full px-0 py-2 border-none bg-transparent text-4xl font-extrabold text-amber-900 focus:ring-0" 
+                />
+              </div>
+              <p className="text-sm text-amber-700/80 mt-3 font-medium">
+                Se utiliza para pesificar los valores en el cotizador y calcular el saldo inicial en pesos.
+              </p>
+            </div>
+
+            {/* Tarjeta: Precio Sugerido USD */}
+            <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-sm">
+              <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Precio Base (USD / M²)</label>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl font-bold text-slate-400">USD</span>
+                <input 
+                  type="number" 
+                  value={precioSugeridoUSD} 
+                  disabled
+                  className="w-full px-0 py-2 border-none bg-transparent text-4xl font-extrabold text-slate-800 focus:ring-0" 
+                />
+              </div>
+              <p className="text-sm text-slate-500 mt-3 font-medium">
+                Valor base por metro cuadrado. Se multiplicará por el coeficiente de cada unidad en el stock.
+              </p>
+            </div>
+            
+          </div>
+        </div>
+      )}
 
       {/* ==========================================
           PESTAÑA: STOCK
@@ -520,7 +569,6 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                         <td className="py-4 font-semibold text-slate-600">{op.cliente_nombre || 'Sin Nombre'}</td>
                         <td className="py-4">
                           <span className="font-bold text-slate-700">{op.moneda}</span>
-                          {/* El campo indice_actualizacion lo agregamos en la BDD, lo mostramos si existe */}
                           <span className="text-xs text-slate-400 ml-1">({(op as any).indice_actualizacion || 'N/A'})</span>
                         </td>
                         <td className="py-4 text-right">${Number(op.precio_total).toLocaleString('es-AR')}</td>

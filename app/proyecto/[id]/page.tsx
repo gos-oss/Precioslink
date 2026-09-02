@@ -47,10 +47,10 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
   const [pagoEntrega, setPagoEntrega] = useState<number>(0)
   const [cuotasEspera, setCuotasEspera] = useState<number>(24)
   const [cuotasPosesion, setCuotasPosesion] = useState<number>(18)
-  const [tasaPosesion, setTasaPosesion] = useState<number>(1.15) // Coeficiente multiplicador (15% de recargo)
+  const [tasaPosesion, setTasaPosesion] = useState<number>(1.15) 
 
   // ==========================================
-  // LÓGICA DE CARGA Y CÁLCULO DE STOCK
+  // LÓGICA DE CARGA DE STOCK
   // ==========================================
   useEffect(() => {
     async function fetchUnidades() {
@@ -116,7 +116,44 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
   }
 
   // ==========================================
-  // LÓGICA DE CÁLCULO DEL FINANCIADOR
+  // LÓGICA DE REGISTRO DE VENTA
+  // ==========================================
+  const handleRegistrarVenta = async () => {
+    if (!unidadSeleccionada) {
+      alert("Por favor, seleccione una unidad para registrar la venta.");
+      return;
+    }
+
+    const confirmar = window.confirm("¿Está seguro de registrar esta venta? La unidad dejará de estar disponible.");
+    if (!confirmar) return;
+
+    // 1. Actualizamos el estado de la unidad en la base de datos
+    const { error } = await supabase
+      .from('unidades')
+      .update({ estado: 'vendida' })
+      .eq('id', unidadSeleccionada);
+
+    if (error) {
+      alert("Error al registrar la venta. Intente nuevamente.");
+      console.error(error);
+      return;
+    }
+
+    // 2. Actualizamos el estado local para que desaparezca de la lista
+    setUnidades(unidades.map(u => u.id === unidadSeleccionada ? { ...u, estado: 'vendida' } : u));
+    setUnidadSeleccionada('');
+
+    // 3. Notificación de éxito
+    if (cuotasEspera > 0 || cuotasPosesion > 0) {
+      alert("✅ Venta Financiada registrada con éxito.\nEl saldo se ha derivado a la Cuenta Corriente para imputación de cuotas.");
+      // Aquí a futuro llamaremos a la función que inserta las cuotas en la tabla de CTA CTE
+    } else {
+      alert("✅ Venta de Contado registrada con éxito.");
+    }
+  }
+
+  // ==========================================
+  // CÁLCULOS DEL FINANCIADOR
   // ==========================================
   const unidadFinanciar = unidadesDisponibles.find(u => u.id === unidadSeleccionada)
   
@@ -130,7 +167,6 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
   const montoAnticipo = precioMoneda * (porcentajeAnticipo / 100)
   const saldoAFinanciar = Math.max(0, precioMoneda - montoAnticipo - pagoEntrega)
   
-  // Fórmula idéntica al Excel: Cuotas Equivalentes = Cuotas Espera + (Cuotas Posesión * Tasa)
   const cuotasEquivalentes = cuotasEspera + (cuotasPosesion * tasaPosesion)
   const valorCuotaEspera = cuotasEquivalentes > 0 ? (saldoAFinanciar / cuotasEquivalentes) : 0
   const valorCuotaPosesion = valorCuotaEspera * tasaPosesion
@@ -139,9 +175,9 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
   // RENDERIZADO
   // ==========================================
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      {/* Header */}
-      <div className="max-w-7xl mx-auto mb-6">
+    <div className="min-h-screen bg-slate-50 p-6 print:p-0 print:bg-white">
+      {/* Header (Se oculta al imprimir) */}
+      <div className="max-w-7xl mx-auto mb-6 print:hidden">
         <Link href="/" className="text-amber-600 font-semibold text-sm hover:underline flex items-center gap-1 mb-2">
           ← VOLVER AL INICIO
         </Link>
@@ -157,8 +193,8 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
         </div>
       </div>
 
-      {/* Navegación por pestañas */}
-      <div className="max-w-7xl mx-auto border-b border-slate-200 mb-6 flex gap-2">
+      {/* Navegación por pestañas (Se oculta al imprimir) */}
+      <div className="max-w-7xl mx-auto border-b border-slate-200 mb-6 flex gap-2 print:hidden">
         {(['pricing', 'stock', 'financiador', 'cobros', 'ubicacion'] as const).map((tab) => (
           <button
             key={tab}
@@ -174,11 +210,9 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
         ))}
       </div>
 
-      {/* ==========================================
-          PESTAÑA: STOCK
-          ========================================== */}
+      {/* PESTAÑA: STOCK */}
       {activeTab === 'stock' && (
-        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 print:hidden">
           {/* Formulario Agregar Unidad */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm h-fit">
             <h3 className="text-sm font-extrabold text-slate-800 mb-4 flex items-center gap-2">
@@ -333,16 +367,23 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
         </div>
       )}
 
-      {/* ==========================================
-          PESTAÑA: FINANCIADOR
-          ========================================== */}
+      {/* PESTAÑA: FINANCIADOR */}
       {activeTab === 'financiador' && (
-        <div className="max-w-4xl mx-auto bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-lg font-extrabold text-slate-800 mb-6 flex items-center gap-2">
-            💼 SIMULADOR DE FINANCIACIÓN
-          </h3>
+        <div className="max-w-4xl mx-auto bg-white p-6 rounded-2xl border border-slate-200 shadow-sm print:border-none print:shadow-none print:w-full print:max-w-none">
+          
+          {/* Título adaptado para impresión */}
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
+              💼 PRESUPUESTO DE FINANCIACIÓN
+            </h3>
+            {unidadFinanciar && (
+              <span className="hidden print:block text-slate-500 font-semibold text-sm">
+                Fecha: {new Date().toLocaleDateString('es-AR')}
+              </span>
+            )}
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 print:grid-cols-2">
             {/* Columna Izquierda: Parámetros */}
             <div className="space-y-5">
               <div>
@@ -350,7 +391,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                 <select 
                   value={unidadSeleccionada}
                   onChange={(e) => setUnidadSeleccionada(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 bg-slate-50"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 focus:ring-2 focus:ring-amber-500 bg-slate-50 print:appearance-none print:bg-white print:border-slate-300"
                 >
                   <option value="">Seleccione una unidad...</option>
                   {unidadesDisponibles.map(u => (
@@ -365,7 +406,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                   <select 
                     value={moneda}
                     onChange={(e) => setMoneda(e.target.value as 'USD' | 'PESOS')}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 print:appearance-none print:bg-white print:border-slate-300"
                   >
                     <option value="USD">Dólares (USD)</option>
                     <option value="PESOS">Pesos + CAC</option>
@@ -377,7 +418,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                     type="number" 
                     value={porcentajeAnticipo}
                     onChange={(e) => setPorcentajeAnticipo(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 print:bg-white print:border-slate-300"
                   />
                 </div>
               </div>
@@ -388,7 +429,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                   type="number" 
                   value={pagoEntrega}
                   onChange={(e) => setPagoEntrega(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 print:bg-white print:border-slate-300"
                 />
               </div>
 
@@ -399,7 +440,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                     type="number" 
                     value={cuotasEspera}
                     onChange={(e) => setCuotasEspera(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 print:bg-white print:border-slate-300"
                   />
                 </div>
                 <div>
@@ -408,7 +449,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                     type="number" 
                     value={cuotasPosesion}
                     onChange={(e) => setCuotasPosesion(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 print:bg-white print:border-slate-300"
                   />
                 </div>
                 <div>
@@ -418,14 +459,14 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                     step="0.01" 
                     value={tasaPosesion}
                     onChange={(e) => setTasaPosesion(Number(e.target.value))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-amber-500 print:bg-white print:border-slate-300"
                   />
                 </div>
               </div>
             </div>
 
             {/* Columna Derecha: Resultados */}
-            <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 h-fit">
+            <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 h-fit print:bg-white print:border-slate-300">
               <h4 className="text-xs font-extrabold text-slate-400 mb-4 uppercase">Resumen del Plan</h4>
               
               <div className="space-y-4">
@@ -444,7 +485,14 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                 </div>
 
                 <div className="flex justify-between items-center border-b border-slate-200 pb-2">
-                  <span className="text-sm font-semibold text-slate-600">Saldo a Financiar</span>
+                  <span className="text-sm font-semibold text-slate-600">Pago a la Entrega</span>
+                  <span className="text-sm font-extrabold text-emerald-600">
+                    {moneda === 'USD' ? 'USD ' : '$'}{Math.round(pagoEntrega).toLocaleString('es-AR')}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center border-b border-slate-200 pb-2 bg-amber-50/50 p-2 rounded">
+                  <span className="text-sm font-semibold text-slate-800">Saldo a Financiar</span>
                   <span className="text-sm font-extrabold text-slate-900">
                     {moneda === 'USD' ? 'USD ' : '$'}{Math.round(saldoAFinanciar).toLocaleString('es-AR')}
                   </span>
@@ -452,7 +500,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
 
                 {/* Detalle de Cuotas */}
                 {cuotasEspera > 0 && (
-                  <div className="bg-amber-50 p-4 rounded-lg mt-4 text-center border border-amber-100">
+                  <div className="bg-amber-50 p-4 rounded-lg mt-4 text-center border border-amber-100 print:bg-white print:border-slate-300">
                     <span className="block text-[11px] font-bold text-amber-800 uppercase mb-1">
                       {cuotasEspera} CUOTAS DE ESPERA {moneda === 'PESOS' ? '(+ CAC)' : ''}
                     </span>
@@ -463,7 +511,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                 )}
 
                 {cuotasPosesion > 0 && (
-                  <div className="bg-slate-200/50 p-4 rounded-lg mt-2 text-center border border-slate-200">
+                  <div className="bg-slate-200/50 p-4 rounded-lg mt-2 text-center border border-slate-200 print:bg-white print:border-slate-300">
                     <span className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
                       {cuotasPosesion} CUOTAS POSESIÓN {moneda === 'PESOS' ? '(+ CAC)' : ''}
                     </span>
@@ -475,6 +523,25 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
               </div>
             </div>
           </div>
+
+          {/* Botonera de Acción (Oculta al imprimir) */}
+          <div className="mt-8 pt-6 border-t border-slate-200 flex justify-end gap-4 print:hidden">
+            <button 
+              onClick={() => window.print()}
+              disabled={!unidadSeleccionada}
+              className="px-6 py-2.5 rounded-xl font-bold text-sm bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              🖨️ Imprimir Presupuesto
+            </button>
+            <button 
+              onClick={handleRegistrarVenta}
+              disabled={!unidadSeleccionada}
+              className="px-6 py-2.5 rounded-xl font-bold text-sm bg-amber-500 text-white hover:bg-amber-600 transition-colors disabled:opacity-50 shadow-sm flex items-center gap-2"
+            >
+              ✅ Registrar Venta
+            </button>
+          </div>
+
         </div>
       )}
     </div>

@@ -381,28 +381,38 @@ export default function Home() {
             </div>
           </div>
 
-          {/* GRID DE PANELES CENTRALES (GRAFICOS Y MAPAS) */}
+          {/* GRID DE PANELES CENTRALES (GRAFICOS ORDENADOS) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
+            {/* 1. Detalle Actual */}
             <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
-              <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Ranking Precios (USD/m²)</h2>
-              <div className="h-64 w-full relative z-10">
-                {resumenPrecios.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={resumenPrecios} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" />
-                      <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
-                      <YAxis dataKey="nombre" type="category" width={80} tick={{ fill: '#f8fafc', fontSize: 10, fontWeight: 600 }} axisLine={false} tickLine={false} />
-                      <RechartsTooltip cursor={{ fill: '#1e293b' }} contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }} />
-                      <Bar dataKey="ultimoPrecioUSD" fill="#0f766e" radius={[0, 4, 4, 0]} name="Precio USD/m²" barSize={20} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin datos.</div>
+              <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Detalle Actual</h2>
+              <div className="h-64 w-full relative z-10 overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin', scrollbarColor: '#475569 transparent' }}>
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 bg-slate-900 z-20">
+                    <tr className="border-b border-slate-700">
+                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Proyecto</th>
+                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Inv. (USD)</th>
+                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Precio/m²</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resumenPrecios.map((item, i) => (
+                      <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/50 transition-colors">
+                        <td className="py-3 text-[11px] font-bold text-slate-200">{item.nombre}</td>
+                        <td className="py-3 text-[11px] font-medium text-amber-500 text-center">${item.valorInventario.toLocaleString()}</td>
+                        <td className="py-3 text-[11px] font-black text-emerald-500 text-right">${item.ultimoPrecioUSD.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {resumenPrecios.length === 0 && (
+                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic mt-10">Sin datos.</div>
                 )}
               </div>
             </div>
 
+            {/* 2. Evolución Histórica */}
             <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
               <div className="flex items-center justify-between mb-6 relative z-10">
                 <h2 className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Evolución Histórica</h2>
@@ -438,6 +448,7 @@ export default function Home() {
               </div>
             </div>
 
+            {/* 3. Participación de Inventario */}
             <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
               <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">
                 <PieChartIcon className="w-4 h-4 mr-2" /> Participación de Inventario
@@ -475,32 +486,26 @@ export default function Home() {
               </div>
             </div>
 
+            {/* 4. Ranking Precios */}
             <div className="bg-slate-900 p-6 rounded-2xl shadow-lg border border-slate-800 relative overflow-hidden">
-              <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Detalle Actual</h2>
-              <div className="h-64 w-full relative z-10 overflow-y-auto pr-2" style={{ scrollbarWidth: 'thin', scrollbarColor: '#475569 transparent' }}>
-                <table className="w-full text-left border-collapse">
-                  <thead className="sticky top-0 bg-slate-900 z-20">
-                    <tr className="border-b border-slate-700">
-                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest">Proyecto</th>
-                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">Inv. (USD)</th>
-                      <th className="pb-3 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-right">Precio/m²</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {resumenPrecios.map((item, i) => (
-                      <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/50 transition-colors">
-                        <td className="py-3 text-[11px] font-bold text-slate-200">{item.nombre}</td>
-                        <td className="py-3 text-[11px] font-medium text-amber-500 text-center">${item.valorInventario.toLocaleString()}</td>
-                        <td className="py-3 text-[11px] font-black text-emerald-500 text-right">${item.ultimoPrecioUSD.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {resumenPrecios.length === 0 && (
-                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic mt-10">Sin datos.</div>
+              <h2 className="text-[11px] font-bold text-slate-400 mb-6 flex items-center uppercase tracking-widest relative z-10">Ranking Precios (USD/m²)</h2>
+              <div className="h-64 w-full relative z-10">
+                {resumenPrecios.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={resumenPrecios} layout="vertical" margin={{ top: 0, right: 30, left: 10, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" />
+                      <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis dataKey="nombre" type="category" width={80} tick={{ fill: '#f8fafc', fontSize: 10, fontWeight: 600 }} axisLine={false} tickLine={false} />
+                      <RechartsTooltip cursor={{ fill: '#1e293b' }} contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155' }} itemStyle={{ color: '#f8fafc', fontWeight: 'bold' }} />
+                      <Bar dataKey="ultimoPrecioUSD" fill="#0f766e" radius={[0, 4, 4, 0]} name="Precio USD/m²" barSize={20} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-slate-600 text-sm italic">Sin datos.</div>
                 )}
               </div>
             </div>
+
           </div>
 
           {/* MAPA INTERACTIVO GLOBAL MULTI-PIN */}

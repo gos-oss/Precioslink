@@ -1,73 +1,72 @@
-export interface PricingInputs {
-  superficieVendible: number;
-  costoDuroM2: number;
-  valorTerrenoUSD: number; 
-  canjeTierraPct: number;
-  canjeHonorariosPct: number;
-  tasaIIBB: number;
-  tasaTEM: number;
-  comisionVenta: number;
-  margenObjetivo: number;
-  tipoCambio: number;
-  pctIVA: number;
-  pctAdmin: number;
-  pctImprevistos: number;
-  pctAjuste: number; 
-}
+export function calcularPrecioSugerido(params: any) {
+  const {
+    superficieVendible, 
+    costoDuroM2, 
+    valorTerrenoUSD, 
+    canjeTierraPct, 
+    canjeHonorariosPct,
+    margenObjetivo, 
+    tasaIIBB, 
+    tasaTEM, 
+    comisionVenta, 
+    tipoCambio,
+    pctIVA, 
+    pctAdmin, 
+    pctImprevistos, 
+    pctAjuste
+  } = params;
 
-export function calcularPrecioSugerido(inputs: PricingInputs) {
-  const porcentajeCanjes = inputs.canjeTierraPct + inputs.canjeHonorariosPct;
-  const metrosLibres = inputs.superficieVendible * (1 - porcentajeCanjes);
+  // 1. COSTOS FIJOS DIRECTOS (Base de Construcción)
+  const construccion = costoDuroM2 * superficieVendible;
+  const terrenoFijo = valorTerrenoUSD || 0; 
+  const imprevistos = construccion * pctImprevistos;
+  const administracion = construccion * pctAdmin;
+  const iva = construccion * pctIVA; 
 
-  // 1. COSTO FÍSICO DEL 100% DEL EDIFICIO
-  const construccion = inputs.superficieVendible * inputs.costoDuroM2;
-  const imprevistos = construccion * inputs.pctImprevistos; 
-  const iva = construccion * inputs.pctIVA;                 
-  const administracion = construccion * inputs.pctAdmin;    
-  const terrenoFijo = inputs.valorTerrenoUSD || 0; 
-  const honorarioFijo = 0;
+  const subtotalCostosFijos = construccion + terrenoFijo + imprevistos + administracion + iva;
+
+  // 2. AISLAR CANJES Y VENTAS REALES
+  const pctCanjeTotal = canjeTierraPct + canjeHonorariosPct;
+  const pctVentaEfectiva = Math.max(0, 1 - pctCanjeTotal); // Solo el % que realmente sale al mercado a venderse
+
+  // 3. FÓRMULA FINANCIERA (Gross Up Corregido)
+  const tasaImpuestosYComisiones = tasaIIBB + tasaTEM + comisionVenta;
   
-  const subtotal1 = construccion + imprevistos + iva + administracion + terrenoFijo + honorarioFijo;
+  // El modelo ahora entiende que los Impuestos y Comisiones SOLO aplican al % de venta efectiva.
+  const porcentajesEgresos = (pctVentaEfectiva * tasaImpuestosYComisiones) + pctCanjeTotal + margenObjetivo;
 
-  const sumaDeducciones = inputs.tasaIIBB + inputs.tasaTEM + inputs.comisionVenta + inputs.margenObjetivo;
+  // Precio de venta = Costos Fijos / (1 - % de todos los egresos y márgenes)
+  let ventasTotalesEstimadas = subtotalCostosFijos / (1 - porcentajesEgresos);
   
-  if (sumaDeducciones >= 1) {
-    throw new Error("Las deducciones superan el 100%");
-  }
+  // Aplicamos el Premium/Descuento si se configuró en la interfaz
+  ventasTotalesEstimadas = ventasTotalesEstimadas * (1 + (pctAjuste || 0));
 
-  const ventasTotalesNecesariasCash = subtotal1 / (1 - sumaDeducciones);
-  const iibbYTem = ventasTotalesNecesariasCash * (inputs.tasaIIBB + inputs.tasaTEM);
-  const comercializacion = ventasTotalesNecesariasCash * inputs.comisionVenta;
+  // 4. CALCULAR LOS MONTOS EXACTOS
+  // Ahora tomamos solo la "porción de plata real" que entra para calcular los impuestos
+  const ventasEfectivasMonetarias = ventasTotalesEstimadas * pctVentaEfectiva;
+  
+  const iibbYTem = ventasEfectivasMonetarias * (tasaIIBB + tasaTEM);
+  const comercializacion = ventasEfectivasMonetarias * comisionVenta;
+  
+  const terrenoCanje = ventasTotalesEstimadas * canjeTierraPct;
+  const honorariosCanje = ventasTotalesEstimadas * canjeHonorariosPct;
 
+  // 5. ARMAR EL TICKET PARA LA UI
+  const subtotal1 = subtotalCostosFijos; 
   const subtotal2 = subtotal1 + iibbYTem + comercializacion;
+  const totalCostoVivienda = subtotal2 + terrenoCanje + honorariosCanje;
 
-  const precioBaseUSD = ventasTotalesNecesariasCash / Math.max(metrosLibres, 1);
-
-  // 2. CÁLCULO DE CANJE A COSTO DE OBRA (Como tú indicaste)
-  // ¿Cuánto me costó físicamente levantar los metros que voy a entregar?
-  const costoFisicoTotal = construccion + imprevistos + iva + administracion;
-  const terrenoCanje = costoFisicoTotal * inputs.canjeTierraPct;
-  const honorariosCanje = costoFisicoTotal * inputs.canjeHonorariosPct;
-
-  // 3. EL COSTO TOTAL REAL DEL PROYECTO
-  // No sumamos el canje aquí porque ya está pagado dentro del 'costoFisicoTotal' (Subtotal 1)
-  // De lo contrario, inflaríamos el costo artificialmente.
-  const totalCostoVivienda = subtotal2;
-
-  const precioSugeridoUSD = precioBaseUSD * (1 + inputs.pctAjuste); 
-  const precioSugeridoARS = precioSugeridoUSD * inputs.tipoCambio;
-
+  const precioSugeridoUSD = ventasTotalesEstimadas / superficieVendible;
+  
   return {
-    metrosLibres,
     precioSugeridoUSD,
-    precioSugeridoARS,
+    metrosLibres: superficieVendible * pctVentaEfectiva, // Ahora muestra exacto los m2 que quedan para vender
     ticket: {
       construccion,
+      terrenoFijo,
       imprevistos,
       iva,
       administracion,
-      terrenoFijo,
-      honorarioFijo,
       subtotal1,
       iibbYTem,
       comercializacion,
@@ -76,5 +75,5 @@ export function calcularPrecioSugerido(inputs: PricingInputs) {
       honorariosCanje,
       totalCostoVivienda
     }
-  };
+  }
 }

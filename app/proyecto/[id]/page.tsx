@@ -56,6 +56,10 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
   const [cuotasPosesion, setCuotasPosesion] = useState<number>(18)
   const [tasaPosesion, setTasaPosesion] = useState<number>(1.15)
 
+  // ESTADOS UBICACIÓN
+  const [direccion, setDireccion] = useState('')
+  const [guardandoDir, setGuardandoDir] = useState(false)
+
   // CARGA DE DATOS GENERAL
   useEffect(() => {
     async function fetchData() {
@@ -80,6 +84,9 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
         if (resProyecto.data.margen_objetivo != null) setMargenObjetivo(resProyecto.data.margen_objetivo)
         if (resProyecto.data.canje_tierra != null) setCanjeTierra(resProyecto.data.canje_tierra)
         if (resProyecto.data.canje_honorarios != null) setCanjeHonorarios(resProyecto.data.canje_honorarios)
+
+        // Cargar Dirección
+        if (resProyecto.data.direccion) setDireccion(resProyecto.data.direccion)
       }
       
       if (resConfig.data) setConfigGlobal(resConfig.data)
@@ -155,6 +162,21 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
       setProyecto({ ...proyecto, nombre: nuevoNombre })
       setEditandoNombre(false)
       mostrarNotificacion('Nombre actualizado correctamente')
+    }
+  }
+
+  // LÓGICA UBICACIÓN
+  async function guardarDireccion() {
+    if (!direccion.trim()) return
+    setGuardandoDir(true)
+    const { error } = await supabase.from('proyectos').update({ direccion: direccion }).eq('id', proyecto.id)
+    setGuardandoDir(false)
+    
+    if (!error) {
+      setProyecto({ ...proyecto, direccion: direccion })
+      mostrarNotificacion('Ubicación guardada con éxito')
+    } else {
+      mostrarNotificacion('Error al guardar la ubicación', 'error')
     }
   }
 
@@ -337,7 +359,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                     <p className="text-xs text-slate-400">Metros cuadrados rentables del proyecto.</p>
                   </div>
                   <div className="relative">
-                    <input type="number" value={superficieVendible} onChange={(e) => setSuperficieVendible(Number(e.target.value))} className="w-full md:w-48 rounded-xl border-none bg-white px-5 py-4 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-black text-xl text-right" />
+                    <input type="number" value={superficieVendible} onChange={(e) => setsuperficieVendible(Number(e.target.value))} className="w-full md:w-48 rounded-xl border-none bg-white px-5 py-4 text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-indigo-600 transition-all font-black text-xl text-right" />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm pointer-events-none">m²</span>
                   </div>
                 </div>
@@ -683,21 +705,50 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
         {/* 5. PESTAÑA UBICACION           */}
         {/* ============================== */}
         {activeTab === 'ubicacion' && (
-          <div className="max-w-7xl mx-auto bg-white p-8 rounded-[32px] border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <h3 className="text-base font-black text-slate-800 mb-8 flex items-center gap-3 uppercase tracking-widest border-b border-slate-100 pb-6">
-              <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600"><MapPin className="w-5 h-5" /></div>
-              Ubicación del Proyecto
-            </h3>
-            
-            <div className="bg-slate-50 p-10 rounded-[24px] border border-slate-100 text-center">
-              <MapPin className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-              <h4 className="text-lg font-black text-slate-700 mb-2">Módulo de Ubicación</h4>
-              <p className="text-slate-500 font-medium text-sm max-w-md mx-auto mb-6">
-                Aquí puedes integrar el iframe de Google Maps o guardar las coordenadas geográficas de la obra.
-              </p>
-              <button className="bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 px-6 py-3 rounded-xl font-bold text-sm shadow-sm transition-all flex items-center gap-2 mx-auto">
-                <Edit2 className="w-4 h-4" /> Configurar Ubicación
-              </button>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 print:hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="lg:col-span-4 bg-white p-8 rounded-[32px] border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-fit">
+              <h3 className="text-sm font-black text-slate-800 mb-6 uppercase tracking-widest flex items-center gap-3 border-b border-slate-100 pb-4">
+                <div className="w-8 h-8 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600"><MapPin className="w-4 h-4" /></div>
+                Dirección
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-extrabold text-slate-500 mb-2 uppercase tracking-widest">Ubicación exacta</label>
+                  <input 
+                    type="text" 
+                    value={direccion} 
+                    onChange={(e) => setDireccion(e.target.value)} 
+                    placeholder="Ej: San Martín 150, Tucumán"
+                    className="w-full px-4 py-3 bg-slate-50 border-none ring-1 ring-inset ring-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-600 focus:bg-white transition-all" 
+                  />
+                  <p className="text-[10px] text-slate-400 mt-2 font-medium">Esta dirección se utilizará para colocar el pin en el Mapa Global del Portafolio.</p>
+                </div>
+                <button 
+                  onClick={guardarDireccion} 
+                  disabled={guardandoDir}
+                  className="w-full mt-4 bg-slate-900 hover:bg-indigo-600 text-white font-bold py-4 rounded-xl text-sm transition-colors shadow-lg hover:shadow-indigo-500/30 flex items-center justify-center gap-2"
+                >
+                  <Save className="w-4 h-4" /> {guardandoDir ? 'Guardando...' : 'Guardar y Ver en Mapa'}
+                </button>
+              </div>
+            </div>
+
+            <div className="lg:col-span-8 bg-slate-100 rounded-[32px] border border-slate-200 shadow-inner overflow-hidden h-[400px] flex items-center justify-center relative">
+               {direccion ? (
+                  <iframe 
+                    width="100%" 
+                    height="100%" 
+                    frameBorder="0" 
+                    scrolling="no" 
+                    src={`https://maps.google.com/maps?q=${encodeURIComponent(direccion + (direccion.toLowerCase().includes('tucuman') ? '' : ', Tucumán, Argentina'))}&t=&z=16&ie=UTF8&iwloc=&output=embed`}
+                    className="absolute inset-0"
+                  ></iframe>
+               ) : (
+                  <div className="text-slate-400 text-sm font-medium flex flex-col items-center">
+                    <MapPin className="w-10 h-10 mb-2 opacity-30" /> 
+                    Ingresa una dirección para previsualizar el mapa
+                  </div>
+               )}
             </div>
           </div>
         )}

@@ -25,9 +25,9 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
   const [superficieVendible, setSuperficieVendible] = useState(5000)
   const [costoDuroM2, setCostoDuroM2] = useState(1200)
   const [valorTerrenoUSD, setValorTerrenoUSD] = useState(0)
-  const [margenObjetivo, setMargenObjetivo] = useState(0.20)
-  const [canjeTierra, setCanjeTierra] = useState(0.13)
-  const [canjeHonorarios, setCanjeHonorarios] = useState(0.10)
+  const [margenObjetivo, setMargenObjetivo] = useState(0.15)
+  const [canjeTierra, setCanjeTierra] = useState(0)
+  const [canjeHonorarios, setCanjeHonorarios] = useState(0.14)
   const [pctAdmin, setPctAdmin] = useState(0.0589)
   const [pctImprevistos, setPctImprevistos] = useState(0.06)
   const [pctAjuste, setPctAjuste] = useState(0)
@@ -59,34 +59,30 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
   // CARGA DE DATOS GENERAL
   useEffect(() => {
     async function fetchData() {
-      const [resProyecto, resConfig, resHistorial, resUnidades, resOperaciones] = await Promise.all([
+      const [resProyecto, resConfig, resUnidades, resOperaciones] = await Promise.all([
         supabase.from('proyectos').select('*').eq('id', params.id).single(),
         supabase.from('configuracion_global').select('*').eq('id', 1).single(),
-        supabase.from('historial_versiones_proyecto').select('*').eq('id_proyecto', params.id).order('id', { ascending: false }).limit(1),
         supabase.from('unidades').select('*').eq('id_proyecto', params.id).order('identificador', { ascending: true }),
         supabase.from('operaciones').select('*').eq('id_proyecto', params.id).order('created_at', { ascending: false })
       ])
       
       if (resProyecto.data) {
         setProyecto(resProyecto.data)
+        
+        // Cargar TODOS los parámetros directamente de la memoria del proyecto
         if (resProyecto.data.superficie_vendible_m2) setSuperficieVendible(resProyecto.data.superficie_vendible_m2)
         if (resProyecto.data.valor_terreno_usd != null) setValorTerrenoUSD(resProyecto.data.valor_terreno_usd)
         if (resProyecto.data.gastos_admin != null) setPctAdmin(resProyecto.data.gastos_admin)
         if (resProyecto.data.imprevistos != null) setPctImprevistos(resProyecto.data.imprevistos)
         if (resProyecto.data.pct_ajuste != null) setPctAjuste(resProyecto.data.pct_ajuste)
+        
+        if (resProyecto.data.costo_duro_m2 != null) setCostoDuroM2(resProyecto.data.costo_duro_m2)
+        if (resProyecto.data.margen_objetivo != null) setMargenObjetivo(resProyecto.data.margen_objetivo)
+        if (resProyecto.data.canje_tierra != null) setCanjeTierra(resProyecto.data.canje_tierra)
+        if (resProyecto.data.canje_honorarios != null) setCanjeHonorarios(resProyecto.data.canje_honorarios)
       }
       
       if (resConfig.data) setConfigGlobal(resConfig.data)
-
-      if (resHistorial.data && resHistorial.data.length > 0) {
-        const ultimo = resHistorial.data[0]
-        if (ultimo.costo_duro_m2) setCostoDuroM2(ultimo.costo_duro_m2)
-        if (ultimo.valor_terreno_usd != null) setValorTerrenoUSD(ultimo.valor_terreno_usd)
-        if (ultimo.canje_tierra_porcentaje != null) setCanjeTierra(ultimo.canje_tierra_porcentaje)
-        if (ultimo.margen_objetivo != null) setMargenObjetivo(ultimo.margen_objetivo)
-        if (ultimo.pct_ajuste != null) setPctAjuste(ultimo.pct_ajuste)
-      }
-
       if (resUnidades.data) setUnidades(resUnidades.data)
       if (resOperaciones.data) setOperaciones(resOperaciones.data)
     }
@@ -116,9 +112,28 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
   async function guardarHistorial() {
     if (!resultados || !proyecto || !configGlobal) return
     setGuardando(true)
-    await supabase.from('proyectos').update({ superficie_vendible_m2: superficieVendible, gastos_admin: pctAdmin, imprevistos: pctImprevistos, pct_ajuste: pctAjuste, valor_terreno_usd: valorTerrenoUSD }).eq('id', proyecto.id)
+    
+    // 1. Guardar la configuración actual en la tabla principal del proyecto (Memoria Persistente)
+    await supabase.from('proyectos').update({ 
+      superficie_vendible_m2: superficieVendible, 
+      gastos_admin: pctAdmin, 
+      imprevistos: pctImprevistos, 
+      pct_ajuste: pctAjuste, 
+      valor_terreno_usd: valorTerrenoUSD,
+      costo_duro_m2: costoDuroM2,
+      margen_objetivo: margenObjetivo,
+      canje_tierra: canjeTierra,
+      canje_honorarios: canjeHonorarios
+    }).eq('id', proyecto.id)
+
+    // 2. Guardar el Snapshot en el historial
     const { data: registroExistente } = await supabase.from('historial_versiones_proyecto').select('id').eq('id_proyecto', proyecto.id).eq('fecha_referencia', fechaReferencia).maybeSingle()
-    const datosAguardar = { tipo_cambio: configGlobal.tipo_cambio, costo_duro_m2: costoDuroM2, valor_terreno_usd: valorTerrenoUSD, canje_tierra_porcentaje: canjeTierra, margen_objetivo: margenObjetivo, resultado_metros_libres: resultados.metrosLibres, resultado_costo_integral_total_usd: resultados.ticket.totalCostoVivienda, resultado_precio_promedio_usd: resultados.precioSugeridoUSD, pct_ajuste: pctAjuste }
+    const datosAguardar = { 
+      tipo_cambio: configGlobal.tipo_cambio, costo_duro_m2: costoDuroM2, valor_terreno_usd: valorTerrenoUSD, 
+      canje_tierra_porcentaje: canjeTierra, margen_objetivo: margenObjetivo, resultado_metros_libres: resultados.metrosLibres, 
+      resultado_costo_integral_total_usd: resultados.ticket.totalCostoVivienda, resultado_precio_promedio_usd: resultados.precioSugeridoUSD, pct_ajuste: pctAjuste 
+    }
+    
     let errorProceso = null
     if (registroExistente) {
       const { error } = await supabase.from('historial_versiones_proyecto').update(datosAguardar).eq('id', registroExistente.id)
@@ -127,9 +142,10 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
       const { error } = await supabase.from('historial_versiones_proyecto').insert({ ...datosAguardar, id_proyecto: proyecto.id, fecha_referencia: fechaReferencia })
       errorProceso = error
     }
+    
     setGuardando(false)
     if (errorProceso) mostrarNotificacion('Error: ' + errorProceso.message, 'error')
-    else mostrarNotificacion('Corte mensual fijado y actualizado')
+    else mostrarNotificacion('Parámetros guardados y Corte fijado exitosamente')
   }
 
   async function guardarNombre() {
@@ -224,7 +240,6 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
        mostrarNotificacion("Cuota cobrada exitosamente")
     } else mostrarNotificacion("Error al registrar cobro", "error")
   }
-
 
   if (!proyecto || !configGlobal) return (
     <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center">
@@ -408,7 +423,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                   <input type="date" value={fechaReferencia} onChange={(e) => setFechaReferencia(e.target.value)} className="w-full bg-slate-800/50 border border-slate-700 text-white rounded-xl px-5 py-4 font-semibold focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all backdrop-blur-sm" />
                 </div>
                 <button onClick={guardarHistorial} disabled={guardando} className={`w-full flex items-center justify-center font-bold py-4 px-6 rounded-xl transition-all duration-300 ${guardando ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-[0_8px_20px_rgba(79,70,229,0.3)] hover:shadow-[0_12px_25px_rgba(79,70,229,0.4)] hover:-translate-y-1'}`}>
-                  <Save className="w-5 h-5 mr-2" /> {guardando ? 'Guardando...' : 'Fijar Corte Mensual'}
+                  <Save className="w-5 h-5 mr-2" /> {guardando ? 'Guardando...' : 'Guardar y Fijar Corte'}
                 </button>
               </div>
             </div>

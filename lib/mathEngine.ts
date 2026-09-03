@@ -16,51 +16,54 @@ export function calcularPrecioSugerido(params: any) {
     pctAjuste
   } = params;
 
-  // 1. COSTOS FIJOS DIRECTOS (Base de Construcción)
+  // 1. COSTOS FIJOS DIRECTOS (Base)
   const construccion = costoDuroM2 * superficieVendible;
   const terrenoFijo = valorTerrenoUSD || 0; 
   const imprevistos = construccion * pctImprevistos;
   const administracion = construccion * pctAdmin;
   const iva = construccion * pctIVA; 
 
-  const subtotalCostosFijos = construccion + terrenoFijo + imprevistos + administracion + iva;
+  const subtotal1 = construccion + terrenoFijo + imprevistos + administracion + iva;
 
-  // 2. AISLAR CANJES Y VENTAS REALES
+  // 2. AISLAR CANJES Y VENTAS EFECTIVAS
   const pctCanjeTotal = canjeTierraPct + canjeHonorariosPct;
-  const pctVentaEfectiva = Math.max(0, 1 - pctCanjeTotal); // Solo el % que realmente sale al mercado a venderse
+  const pctVentaEfectiva = Math.max(0, 1 - pctCanjeTotal); // Solo el % que realmente sale a la venta
 
-  // 3. FÓRMULA FINANCIERA (Gross Up Corregido)
-  const tasaImpuestosYComisiones = tasaIIBB + tasaTEM + comisionVenta;
+  // 3. FÓRMULA FINANCIERA (Gross Up Resolviendo la X del Costo Total)
+  // factorImpuestos: Se divide por (1 + pctIVA) para que IIBB y TEM se calculen sobre el NETO DE IVA.
+  const factorComision = comisionVenta;
+  const factorImpuestos = (tasaIIBB + tasaTEM) / (1 + pctIVA); 
   
-  // El modelo ahora entiende que los Impuestos y Comisiones SOLO aplican al % de venta efectiva.
-  const porcentajesEgresos = (pctVentaEfectiva * tasaImpuestosYComisiones) + pctCanjeTotal + margenObjetivo;
-
-  // Precio de venta = Costos Fijos / (1 - % de todos los egresos y márgenes)
-  let ventasTotalesEstimadas = subtotalCostosFijos / (1 - porcentajesEgresos);
+  // Ecuación algebraica despejada: 
+  // Costo Total = Subtotal 1 / [ %VentaEfectiva * (1 - (1+Margen) * (Comision + ImpuestosNetos)) ]
+  const denominador = pctVentaEfectiva * (1 - (1 + margenObjetivo) * (factorComision + factorImpuestos));
   
-  // Aplicamos el Premium/Descuento si se configuró en la interfaz
+  const totalCostoVivienda = subtotal1 / denominador;
+  
+  // 4. CALCULAR MONTOS EXACTOS
+  const terrenoCanje = totalCostoVivienda * canjeTierraPct;
+  const honorariosCanje = totalCostoVivienda * canjeHonorariosPct;
+  
+  // La venta total objetivo sumándole el margen de ganancia
+  let ventasTotalesEstimadas = totalCostoVivienda * (1 + margenObjetivo);
+  
+  // Aplicamos el Premium/Descuento si el usuario lo configuró en pantalla
   ventasTotalesEstimadas = ventasTotalesEstimadas * (1 + (pctAjuste || 0));
 
-  // 4. CALCULAR LOS MONTOS EXACTOS
-  // Ahora tomamos solo la "porción de plata real" que entra para calcular los impuestos
-  const ventasEfectivasMonetarias = ventasTotalesEstimadas * pctVentaEfectiva;
-  
-  const iibbYTem = ventasEfectivasMonetarias * (tasaIIBB + tasaTEM);
-  const comercializacion = ventasEfectivasMonetarias * comisionVenta;
-  
-  const terrenoCanje = ventasTotalesEstimadas * canjeTierraPct;
-  const honorariosCanje = ventasTotalesEstimadas * canjeHonorariosPct;
+  // 5. CÁLCULO DE EGRESOS COMERCIALES E IMPUESTOS
+  const ventasEfectivasBrutas = ventasTotalesEstimadas * pctVentaEfectiva; // Lo que realmente se factura
+  const ventasEfectivasNetas = ventasEfectivasBrutas / (1 + pctIVA); // Base imponible para Rentas
 
-  // 5. ARMAR EL TICKET PARA LA UI
-  const subtotal1 = subtotalCostosFijos; 
+  const iibbYTem = ventasEfectivasNetas * (tasaIIBB + tasaTEM);
+  const comercializacion = ventasEfectivasBrutas * comisionVenta;
+  
+  // 6. ARMAR EL TICKET PARA LA UI
   const subtotal2 = subtotal1 + iibbYTem + comercializacion;
-  const totalCostoVivienda = subtotal2 + terrenoCanje + honorariosCanje;
-
   const precioSugeridoUSD = ventasTotalesEstimadas / superficieVendible;
   
   return {
     precioSugeridoUSD,
-    metrosLibres: superficieVendible * pctVentaEfectiva, // Ahora muestra exacto los m2 que quedan para vender
+    metrosLibres: superficieVendible * pctVentaEfectiva, 
     ticket: {
       construccion,
       terrenoFijo,

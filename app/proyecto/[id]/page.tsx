@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { calcularPrecioSugerido } from '../../../lib/mathEngine'
 import Link from 'next/link'
-import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin } from 'lucide-react'
+import { ArrowLeft, Save, Building2, Calculator, Percent, DollarSign, Edit2, Check, X, Activity, Calendar, SlidersHorizontal, CheckCircle2, MapPin, Receipt } from 'lucide-react'
 
 const getTodayDate = () => {
   const d = new Date()
@@ -46,6 +46,11 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
   const [filtroEstado, setFiltroEstado] = useState<string>('todos')
   const [nuevaUnidad, setNuevaUnidad] = useState({ identificador: '', superficie_m2: '', estado: 'disponible', porcentaje_aplicar: '100' })
   
+  // ESTADOS NUEVOS: DETALLE DE COBROS (MODAL)
+  const [operacionSeleccionadaCobro, setOperacionSeleccionadaCobro] = useState<any>(null)
+  const [cuotasOperacion, setCuotasOperacion] = useState<any[]>([])
+  const [cargandoCuotas, setCargandoCuotas] = useState(false)
+
   // ==========================================
   // ESTADOS MÓDULO FINANCIADOR
   // ==========================================
@@ -247,6 +252,40 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
   }
 
   // ==========================================
+  // LÓGICA DE COBRANZA (NUEVO)
+  // ==========================================
+  const handleAbrirCobros = async (operacion: any) => {
+    setOperacionSeleccionadaCobro(operacion)
+    setCargandoCuotas(true)
+    const { data, error } = await supabase
+      .from('cuotas')
+      .select('*')
+      .eq('id_operacion', operacion.id)
+      .order('numero_cuota', { ascending: true })
+
+    if (data) setCuotasOperacion(data)
+    setCargandoCuotas(false)
+  }
+
+  const handleCobrarCuota = async (cuotaId: string) => {
+    if (!window.confirm("¿Confirmar el cobro de esta cuota?")) return
+    
+    const hoy = getTodayDate()
+    const { error } = await supabase
+      .from('cuotas')
+      .update({ estado: 'pagada', fecha_pago: hoy })
+      .eq('id', cuotaId)
+      
+    if (!error) {
+       setCuotasOperacion(cuotasOperacion.map(c => c.id === cuotaId ? { ...c, estado: 'pagada', fecha_pago: hoy } : c))
+       mostrarNotificacion("Cuota cobrada exitosamente")
+    } else {
+       mostrarNotificacion("Error al registrar cobro", "error")
+    }
+  }
+
+
+  // ==========================================
   // LOADING STATE
   // ==========================================
   if (!proyecto || !configGlobal) return (
@@ -313,7 +352,7 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
         </div>
 
         {/* ============================== */}
-        {/* 1. PESTAÑA PRICING (ORIGINAL) */}
+        {/* 1. PESTAÑA PRICING             */}
         {/* ============================== */}
         {activeTab === 'pricing' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 print:hidden">
@@ -599,17 +638,18 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                     <th className="pb-4">Cliente</th>
                     <th className="pb-4">Moneda / Índice</th>
                     <th className="pb-4 text-right">Total Venta</th>
-                    <th className="pb-4 text-right pr-2">Saldo Financiado</th>
+                    <th className="pb-4 text-right">Saldo Financiado</th>
+                    <th className="pb-4 text-center pr-2">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
                   {operaciones.length === 0 ? (
-                    <tr><td colSpan={5} className="py-10 text-center text-zinc-400 font-medium">Aún no hay ventas registradas.</td></tr>
+                    <tr><td colSpan={6} className="py-10 text-center text-zinc-400 font-medium">Aún no hay ventas registradas.</td></tr>
                   ) : (
                     operaciones.map(op => {
                       const uni = unidades.find(u => u.id === op.id_unidad)
                       return (
-                        <tr key={op.id} className="hover:bg-zinc-50/50 transition-colors group cursor-pointer">
+                        <tr key={op.id} className="hover:bg-zinc-50/50 transition-colors group">
                           <td className="py-4 pl-2 font-black text-zinc-800">{uni ? uni.identificador : 'Desconocida'}</td>
                           <td className="py-4 font-semibold text-zinc-600">{op.cliente_nombre || 'Sin Nombre'}</td>
                           <td className="py-4">
@@ -617,7 +657,12 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
                             <span className="text-xs text-zinc-400 ml-1 font-medium">({op.indice_actualizacion || 'N/A'})</span>
                           </td>
                           <td className="py-4 text-right font-medium text-zinc-500">${Number(op.precio_total).toLocaleString('es-AR')}</td>
-                          <td className="py-4 text-right pr-2 font-black text-emerald-600">${Number(op.saldo_financiado).toLocaleString('es-AR')}</td>
+                          <td className="py-4 text-right font-black text-emerald-600">${Number(op.saldo_financiado).toLocaleString('es-AR')}</td>
+                          <td className="py-4 text-center pr-2">
+                            <button onClick={() => handleAbrirCobros(op)} className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700 px-4 py-2 rounded-lg text-xs font-bold transition-colors">
+                              Cobrar / Ver Detalles
+                            </button>
+                          </td>
                         </tr>
                       )
                     })
@@ -628,6 +673,92 @@ export default function ProyectoDetallePage({ params }: { params: { id: string }
           </div>
         )}
       </div>
+
+      {/* ========================================== */}
+      {/* MODAL DE DETALLE Y COBRO DE CUOTAS         */}
+      {/* ========================================== */}
+      {operacionSeleccionadaCobro && (
+        <div className="fixed inset-0 z-[60] bg-zinc-900/40 backdrop-blur-sm flex justify-center items-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[85vh] shadow-2xl flex flex-col overflow-hidden border border-zinc-200">
+            
+            {/* Cabecera del Modal */}
+            <div className="px-8 py-6 border-b border-zinc-100 flex justify-between items-center bg-zinc-50">
+              <div>
+                <h3 className="text-xl font-black text-zinc-900 flex items-center gap-2">
+                  <Receipt className="w-6 h-6 text-indigo-500" />
+                  Detalle de Cuenta Corriente
+                </h3>
+                <p className="text-sm font-medium text-zinc-500 mt-1">
+                  Cliente: <span className="font-bold text-zinc-700">{operacionSeleccionadaCobro.cliente_nombre || 'Sin nombre'}</span> | 
+                  Moneda: <span className="font-bold text-zinc-700">{operacionSeleccionadaCobro.moneda}</span>
+                </p>
+              </div>
+              <button onClick={() => setOperacionSeleccionadaCobro(null)} className="p-2 bg-white border border-zinc-200 text-zinc-400 hover:text-rose-500 hover:border-rose-200 rounded-full transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Cuerpo del Modal (Tabla de Cuotas) */}
+            <div className="overflow-y-auto flex-1 p-8 bg-white">
+              {cargandoCuotas ? (
+                <div className="flex justify-center py-10"><Activity className="w-8 h-8 text-indigo-500 animate-spin" /></div>
+              ) : (
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-200 text-zinc-400 uppercase font-bold tracking-wider text-[10px]">
+                      <th className="pb-3 pl-2">Nº Cuota</th>
+                      <th className="pb-3">Vencimiento</th>
+                      <th className="pb-3 text-right">Monto Base</th>
+                      <th className="pb-3 text-center">Estado</th>
+                      <th className="pb-3 text-center pr-2">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {cuotasOperacion.length === 0 ? (
+                      <tr><td colSpan={5} className="py-6 text-center text-zinc-500">No hay cuotas registradas para esta operación.</td></tr>
+                    ) : (
+                      cuotasOperacion.map((cuota) => (
+                        <tr key={cuota.id} className={`hover:bg-zinc-50/50 transition-colors ${cuota.estado === 'pagada' ? 'bg-zinc-50/30' : ''}`}>
+                          <td className="py-4 pl-2 font-bold text-zinc-800">
+                            {cuota.numero_cuota} <span className="text-[10px] text-zinc-400 uppercase ml-1">({cuota.tipo_cuota})</span>
+                          </td>
+                          <td className="py-4 font-semibold text-zinc-600">
+                            {new Date(cuota.fecha_vencimiento).toLocaleDateString('es-AR')}
+                          </td>
+                          <td className="py-4 text-right font-black text-zinc-700">
+                            ${Number(cuota.monto_base).toLocaleString('es-AR')}
+                          </td>
+                          <td className="py-4 text-center">
+                            {cuota.estado === 'pagada' ? (
+                              <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
+                                <Check className="w-3 h-3" /> Pagada
+                              </span>
+                            ) : (
+                              <span className="inline-block bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest">
+                                Pendiente
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-4 text-center pr-2">
+                            {cuota.estado === 'pendiente' ? (
+                              <button onClick={() => handleCobrarCuota(cuota.id)} className="bg-zinc-900 text-white hover:bg-indigo-600 px-4 py-2 rounded-lg text-xs font-bold transition-colors">
+                                Registrar Pago
+                              </button>
+                            ) : (
+                              <span className="text-[10px] font-bold text-zinc-400">Pagada el {new Date(cuota.fecha_pago).toLocaleDateString('es-AR')}</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </main>
   )
 }
